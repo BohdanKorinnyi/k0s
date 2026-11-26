@@ -3,8 +3,10 @@ package api
 import (
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -18,6 +20,13 @@ import (
 )
 
 const testHost = "localhost:8080"
+
+// Keep expected warnings (an unreachable host, a recovered panic) out of the
+// test output, so a real problem stands out.
+func TestMain(m *testing.M) {
+	slog.SetDefault(slog.New(slog.NewTextHandler(io.Discard, nil)))
+	os.Exit(m.Run())
+}
 
 var testUI = fstest.MapFS{
 	"index.html":        {Data: []byte("<!doctype html><title>dockpanel</title>")},

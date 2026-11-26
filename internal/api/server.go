@@ -51,6 +51,9 @@ type server struct {
 	// action on the same service is refused instead of interleaving.
 	busyMu sync.Mutex
 	busy   map[string]bool
+
+	// spawn runs background work. Tests replace it to run the work inline.
+	spawn func(func())
 }
 
 // New returns the server's handler.
@@ -66,6 +69,7 @@ func newServer(d Deps) *server {
 		sessions: newSessionStore(d.Now),
 		logins:   newFailureLimiter(d.Now),
 		busy:     map[string]bool{},
+		spawn:    func(f func()) { go f() },
 	}
 	s.routes()
 	return s
@@ -75,6 +79,29 @@ func (s *server) routes() {
 	s.mux.HandleFunc("GET /api/session", s.handleSession)
 	s.mux.HandleFunc("POST /api/login", s.handleLogin)
 	s.mux.HandleFunc("POST /api/logout", s.handleLogout)
+
+	s.mux.HandleFunc("GET /api/hosts", s.handleHostsList)
+	s.mux.HandleFunc("POST /api/hosts", s.handleHostCreate)
+	s.mux.HandleFunc("POST /api/hosts/test", s.handleHostTest)
+	s.mux.HandleFunc("PUT /api/hosts/{host}", s.handleHostUpdate)
+	s.mux.HandleFunc("DELETE /api/hosts/{host}", s.handleHostDelete)
+	s.mux.HandleFunc("GET /api/hosts/{host}/status", s.handleHostStatus)
+
+	s.mux.HandleFunc("GET /api/hosts/{host}/services", s.handleServices)
+	s.mux.HandleFunc("GET /api/hosts/{host}/services/{key}", s.handleService)
+	s.mux.HandleFunc("POST /api/hosts/{host}/updates/check", s.handleCheckUpdates)
+
+	s.mux.HandleFunc("GET /api/actions", s.handleActionsList)
+	s.mux.HandleFunc("POST /api/hosts/{host}/services/{key}/actions/{action}", s.handleAction)
+
+	s.mux.HandleFunc("GET /api/hosts/{host}/containers/{id}/info", s.handleInfo)
+	s.mux.HandleFunc("GET /api/hosts/{host}/containers/{id}/env", s.handleEnvNames)
+	s.mux.HandleFunc("POST /api/hosts/{host}/containers/{id}/env/reveal", s.handleEnvReveal)
+
+	s.mux.HandleFunc("GET /api/registries", s.handleRegistriesList)
+	s.mux.HandleFunc("POST /api/registries", s.handleRegistryCreate)
+	s.mux.HandleFunc("PUT /api/registries/{id}", s.handleRegistryUpdate)
+	s.mux.HandleFunc("DELETE /api/registries/{id}", s.handleRegistryDelete)
 
 	// Anything else under /api/ is unknown; everything outside it is the UI.
 	s.mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
