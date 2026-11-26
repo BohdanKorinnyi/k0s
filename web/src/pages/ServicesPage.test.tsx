@@ -99,10 +99,12 @@ test('an unreachable host shows why, with a Retry that loads again', async () =>
   expect(screen.queryByRole('table')).toBeNull()
 
   reachable = true
-  const before = fetched.calls.filter((c) => c.path === '/api/hosts/aws/services').length
+  // Retry is a load the person asked for, so it may start an update check too.
+  const loads = () => fetched.calls.filter((c) => c.path === '/api/hosts/aws/services?check=1').length
+  const before = loads()
   await user.click(within(alert).getByRole('button', { name: 'Retry' }))
   expect(await screen.findByRole('row', { name: /^api\b/ })).toBeInTheDocument()
-  expect(fetched.calls.filter((c) => c.path === '/api/hosts/aws/services').length).toBeGreaterThan(before)
+  expect(loads()).toBeGreaterThan(before)
   expect(screen.queryByRole('alert')).toBeNull()
 })
 
@@ -150,4 +152,25 @@ test('running an action reloads the list when it finishes', async () => {
   await user.click(within(row).getByRole('button', { name: 'Restart' }))
   await screen.findByText('Restart finished')
   await waitFor(() => expect(loads()).toBeGreaterThan(before))
+})
+
+// Opening a list may start an update check on the server; the refreshes that
+// follow must not, or a tab left open would use up the registry's quota.
+test('only the first load of a host asks for an update check', async () => {
+  const user = userEvent.setup()
+  const fetched = renderPage({
+    'GET /api/hosts/aws/services': services,
+    'POST /api/hosts/aws/services/c~shop~api/actions/restart': new Response(
+      '{"step":"Restart finished","level":"success","done":true}\n',
+      { status: 200 },
+    ),
+  })
+  const row = await screen.findByRole('row', { name: /^api\b/ })
+  const loads = () => fetched.calls.filter((c) => c.method === 'GET' && c.path.startsWith('/api/hosts/aws/services')).map((c) => c.path)
+  expect(loads()).toEqual(['/api/hosts/aws/services?check=1'])
+
+  await user.click(within(row).getByRole('button', { name: 'Restart' }))
+  await screen.findByText('Restart finished')
+  await waitFor(() => expect(loads().length).toBeGreaterThan(1))
+  expect(loads().slice(1).every((path) => path === '/api/hosts/aws/services')).toBe(true)
 })

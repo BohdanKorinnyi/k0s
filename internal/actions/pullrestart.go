@@ -42,6 +42,14 @@ func (pullRestart) Run(ctx context.Context, env Env, t Target, report Progress) 
 		return errors.New("pull & restart applies to the whole service: a new image is for all of its containers")
 	}
 
+	// Checked before anything is pulled or touched: a service that includes
+	// the panel's own container cannot be replaced from inside the panel.
+	for _, c := range t.Service.Containers {
+		if err := refuseSelf(env, c.ID, c.Name); err != nil {
+			return err
+		}
+	}
+
 	var refs []string
 	seen := map[string]bool{}
 	for _, c := range t.Service.Containers {

@@ -107,6 +107,16 @@ export function ServicePage() {
 
   return (
     <Layout currentHostId={host.id} fill>
+      {state.stale && (
+        <div className="notice warn" role="status" style={{ marginBottom: 10, display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span className="grow">
+            Could not refresh: {state.stale}. Showing what was last known.
+          </span>
+          <button type="button" className="btn small" onClick={state.reload}>
+            Retry
+          </button>
+        </div>
+      )}
       <div className="page-head">
         <div className="crumbs">
           <Link to={hostPath(host.id)} aria-label={`Back to ${host.name}`} className="btn icon quiet" title={`Back to ${host.name}`}>

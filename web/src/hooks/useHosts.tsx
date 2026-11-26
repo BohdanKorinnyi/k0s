@@ -16,6 +16,10 @@ type HostsState = {
 const HostsContext = createContext<HostsState | null>(null)
 
 const STATUS_INTERVAL = 30_000
+// A host that did not answer is asked again far less often. Over SSH each
+// attempt is a login on the server; repeating failed ones every half minute
+// from a tab left open invites a ban.
+const FAILED_STATUS_INTERVAL = 5 * 60_000
 
 /** Loads the saved hosts once and shares them with every page. */
 export function HostsProvider({ children }: { children: ReactNode }) {
@@ -44,13 +48,20 @@ export function HostsProvider({ children }: { children: ReactNode }) {
   const ids = hosts.map((h) => h.id + '\n' + h.url).join('\n\n')
   useEffect(() => {
     let cancelled = false
+    // When each host last failed to answer, to space out the next attempt.
+    const failedAt = new Map<string, number>()
     const check = () => {
       for (const host of hosts) {
+        const failed = failedAt.get(host.id)
+        if (failed !== undefined && Date.now() - failed < FAILED_STATUS_INTERVAL) continue
         api
           .get<ConnectionResult>(`${paths.host(host.id)}/status`)
           .catch((e: unknown): ConnectionResult => ({ ok: false, version: '', error: e instanceof Error ? e.message : String(e) }))
           .then((result) => {
-            if (!cancelled) setStatuses((prev) => ({ ...prev, [host.id]: result }))
+            if (cancelled) return
+            if (result.ok) failedAt.delete(host.id)
+            else failedAt.set(host.id, Date.now())
+            setStatuses((prev) => ({ ...prev, [host.id]: result }))
           })
       }
     }

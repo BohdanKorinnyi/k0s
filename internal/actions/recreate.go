@@ -64,8 +64,8 @@ func Replace(ctx context.Context, env Env, containerID string, report Progress) 
 		return false, fmt.Errorf("%s: Docker returned an incomplete description of the container", name)
 	}
 
-	if env.SelfContainerID != "" && strings.HasPrefix(old.ID, env.SelfContainerID) {
-		return false, fmt.Errorf("%s is the panel's own container: stopping it would stop the panel halfway through the replacement. Update the panel from outside instead (pull its image and run it again, or `docker compose pull && docker compose up -d`)", name)
+	if err := refuseSelf(env, old.ID, name); err != nil {
+		return false, err
 	}
 	if reason := refuseReason(old); reason != "" {
 		return false, fmt.Errorf("%s cannot be replaced automatically: %s", name, reason)
@@ -200,6 +200,16 @@ func healthBudget(hc *container.HealthConfig, floor time.Duration) time.Duration
 	}
 	needed := hc.StartPeriod + time.Duration(retries)*(interval+timeout) + 5*time.Second
 	return min(max(floor, needed), maxHealthWait)
+}
+
+// refuseSelf returns an error when the container is the one the panel itself
+// runs in. Replacing it would stop the panel between "stop the old one" and
+// "start the new one", with nothing left to finish the job.
+func refuseSelf(env Env, containerID, name string) error {
+	if env.SelfContainerID == "" || !strings.HasPrefix(containerID, env.SelfContainerID) {
+		return nil
+	}
+	return fmt.Errorf("%s is the panel's own container: stopping it would stop the panel halfway through the replacement. Update the panel from outside instead (run its new image, or `docker compose up -d --build`)", name)
 }
 
 // waitUntilUp watches a just-started container until it can be trusted: it

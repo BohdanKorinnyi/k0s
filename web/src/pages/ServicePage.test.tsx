@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
@@ -159,6 +159,39 @@ describe('ServicePage', () => {
     const alert = await screen.findByRole('alert')
     expect(alert).toHaveTextContent('connection refused')
     expect(within(alert).getByRole('button', { name: 'Retry' })).toBeInTheDocument()
+  })
+
+  // The page refreshes itself every few seconds. One refresh failing (a blip
+  // on the connection) must not replace the page: that would close an open
+  // shell and throw away the log on screen.
+  test('a failed refresh keeps the page and says so', async () => {
+    const user = userEvent.setup()
+    let reachable = true
+    renderPage('/h/aws/s/c~shop~api?tab=env&c=shop-api-1', {
+      'GET /api/hosts/aws/services/c~shop~api': () =>
+        reachable ? svc : json(502, { error: 'cannot reach aws: i/o timeout', code: 'host_unreachable' }),
+      'POST /api/hosts/aws/services/c~shop~api/actions/restart': new Response(
+        '{"step":"Restart finished","level":"success","done":true}\n',
+        { status: 200 },
+      ),
+    })
+    await screen.findByRole('row', { name: /^A\b/ })
+
+    reachable = false
+    // Finishing an action makes the page refresh.
+    await user.click(screen.getByRole('button', { name: 'Restart' }))
+    const notice = await screen.findByText(/could not refresh/i)
+    expect(notice).toHaveTextContent('i/o timeout')
+
+    // Everything is still there.
+    expect(screen.getByRole('heading', { name: 'api' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Env' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('row', { name: /^A\b/ })).toBeInTheDocument()
+
+    // And it recovers on the next successful refresh.
+    reachable = true
+    await user.click(screen.getByRole('button', { name: 'Retry' }))
+    await waitFor(() => expect(screen.queryByText(/could not refresh/i)).toBeNull())
   })
 
   test('a header action runs on the whole service', async () => {

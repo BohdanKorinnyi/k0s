@@ -336,3 +336,18 @@ func TestPullRestartKeepsThePlatform(t *testing.T) {
 		t.Errorf("pull platforms = %+v, want linux/amd64", got)
 	}
 }
+
+// Asked to update the panel itself, say so at once — before pulling, which for
+// a locally built panel image fails with a message about the registry that
+// has nothing to do with the real reason.
+func TestPullRestartRefusesThePanelItselfBeforePulling(t *testing.T) {
+	r := newPullRig(t, true)
+	r.env.SelfContainerID = r.ids[1][:12]
+	_, err := r.run(t)
+	if err == nil || !strings.Contains(err.Error(), "the panel's own container") {
+		t.Fatalf("err = %v, want a refusal explaining it is the panel itself", err)
+	}
+	if calls := r.f.CallLog(); len(calls) != 0 {
+		t.Errorf("calls = %q, want nothing pulled or replaced", calls)
+	}
+}
