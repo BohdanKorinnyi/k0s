@@ -77,3 +77,27 @@ func TestExposureWarning(t *testing.T) {
 		t.Errorf("warning = %q, want it to name the hostname and the password setting", w)
 	}
 }
+
+// The panel finds the ID of the container it runs in, so that it can refuse to
+// replace itself.
+func TestSelfContainerID(t *testing.T) {
+	const id = "0f7d86e0c5493b2c8a1e4d5f6a7b8c9d0e1f2a3b4c5d6e7f8091a2b3c4d5e6f7"
+	// What /proc/self/mountinfo holds inside a container: Docker mounts a few
+	// files from the container's own folder.
+	mountinfo := "1234 1200 254:1 /docker/containers/" + id + "/resolv.conf /etc/resolv.conf rw,relatime - ext4 /dev/vda1 rw\n" +
+		"1235 1200 254:1 /docker/containers/" + id + "/hostname /etc/hostname rw,relatime - ext4 /dev/vda1 rw\n"
+
+	if got := selfContainerID(mountinfo, "whatever"); got != id {
+		t.Errorf("from mountinfo: %q, want the full ID", got)
+	}
+	// Failing that, a container's hostname is its short ID unless someone set one.
+	if got := selfContainerID("", id[:12]); got != id[:12] {
+		t.Errorf("from the hostname: %q, want %q", got, id[:12])
+	}
+	// Not in a container, or a hostname someone chose: unknown.
+	for _, hostname := range []string{"my-laptop", "panel", "", "ABCDEF123456"} {
+		if got := selfContainerID("42 1 0:1 / / rw - ext4 /dev/sda1 rw\n", hostname); got != "" {
+			t.Errorf("hostname %q: got %q, want unknown", hostname, got)
+		}
+	}
+}

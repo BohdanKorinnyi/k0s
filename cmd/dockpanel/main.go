@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"syscall"
 	"time"
@@ -60,6 +61,17 @@ func run(ctx context.Context, cfg config.Config) error {
 		slog.Info("first run: added the local Docker socket as host \"local\"", "socket", cfg.LocalSocket)
 	}
 
+	// Keys and config mounted from the host are copied to where ssh reads
+	// them, with the ownership and modes ssh insists on.
+	if home, err := os.UserHomeDir(); err == nil {
+		n, err := hosts.PrepareSSHDir(cfg.SSHDir, filepath.Join(home, ".ssh"))
+		if err != nil {
+			slog.Warn("could not prepare the SSH keys", "from", cfg.SSHDir, "error", err)
+		} else if n > 0 {
+			slog.Info("SSH keys and configuration are in place", "from", cfg.SSHDir, "files", n)
+		}
+	}
+
 	manager := hosts.NewManager(st, hosts.Options{
 		// Host keys seen for the first time are remembered next to the data.
 		KnownHostsFile: filepath.Join(cfg.DataDir, "known_hosts"),
@@ -77,17 +89,23 @@ func run(ctx context.Context, cfg config.Config) error {
 		return out
 	}}
 
+	mountinfo, _ := os.ReadFile("/proc/self/mountinfo")
+	hostname, _ := os.Hostname()
+	self := selfContainerID(string(mountinfo), hostname)
+
+	panel := api.NewServer(api.Deps{
+		Config:          cfg,
+		Store:           st,
+		Hosts:           manager,
+		Actions:         actions.Default(),
+		Updates:         updates.NewChecker(auth, time.Now),
+		Auth:            auth,
+		UI:              webui.FS(),
+		SelfContainerID: func() string { return self },
+	})
 	server := &http.Server{
-		Addr: cfg.Addr,
-		Handler: api.New(api.Deps{
-			Config:  cfg,
-			Store:   st,
-			Hosts:   manager,
-			Actions: actions.Default(),
-			Updates: updates.NewChecker(auth, time.Now),
-			Auth:    auth,
-			UI:      webui.FS(),
-		}),
+		Addr:    cfg.Addr,
+		Handler: panel.Handler(),
 		// No overall read or write limits: log streams, shells and action
 		// progress are long-lived by design.
 		ReadHeaderTimeout: 10 * time.Second,
@@ -107,13 +125,46 @@ func run(ctx context.Context, cfg config.Config) error {
 		return err
 	case <-ctx.Done():
 	}
-	slog.Info("shutting down")
+	// An action cut off between stopping a container and starting its
+	// replacement would leave a service down, so running actions are given
+	// time to finish. Whoever stops the panel must allow that time too: see
+	// stop_grace_period in compose.yaml.
+	slog.Info("shutting down; waiting for running actions to finish")
+	drain, stopDrain := context.WithTimeout(context.Background(), drainTimeout)
+	if err := panel.Drain(drain); err != nil {
+		slog.Error("shut down while an action was still running; a container may be left stopped under a name ending in -old-…", "error", err)
+	}
+	stopDrain()
+
 	shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := server.Shutdown(shutdown); err != nil && !errors.Is(err, context.DeadlineExceeded) {
 		return err
 	}
 	return nil
+}
+
+// drainTimeout is how long shutdown waits for running actions.
+const drainTimeout = 3 * time.Minute
+
+var (
+	containerInMountinfo = regexp.MustCompile(`/containers/([0-9a-f]{64})/`)
+	shortContainerID     = regexp.MustCompile(`^[0-9a-f]{12}$`)
+)
+
+// selfContainerID works out which container the panel runs in, so that it
+// can refuse to replace itself. Docker mounts a few files from the
+// container's own folder, which names its ID; failing that, a container's
+// hostname is its short ID unless someone chose another. Outside a container
+// both come up empty.
+func selfContainerID(mountinfo, hostname string) string {
+	if m := containerInMountinfo.FindStringSubmatch(mountinfo); m != nil {
+		return m[1]
+	}
+	if shortContainerID.MatchString(hostname) {
+		return hostname
+	}
+	return ""
 }
 
 // addLocalHost offers the mounted Docker socket as a host named "local", so

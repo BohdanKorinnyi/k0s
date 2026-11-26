@@ -18,6 +18,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -388,7 +389,7 @@ func TestBackgroundUpdateCheck(t *testing.T) {
 	h, f := r.addHost("aws", false)
 	shop(f)
 
-	first := decode[servicesBody](t, r.do("GET", "/api/hosts/"+h.ID+"/services", nil))
+	first := decode[servicesBody](t, r.do("GET", "/api/hosts/"+h.ID+"/services?check=1", nil))
 	if api, _ := first.service("c~shop~api"); api.Update.Status != "unchecked" {
 		t.Errorf("first response update = %+v, want unchecked (the check runs after it)", api.Update)
 	}
@@ -408,7 +409,7 @@ func TestBackgroundUpdateCheck(t *testing.T) {
 
 	// Within 15 minutes the registry is not asked again.
 	calls := f.Count("DistributionInspect")
-	r.do("GET", "/api/hosts/"+h.ID+"/services", nil)
+	r.do("GET", "/api/hosts/"+h.ID+"/services?check=1", nil)
 	if got := f.Count("DistributionInspect"); got != calls {
 		t.Errorf("registry calls went from %d to %d on a refresh inside 15 minutes", calls, got)
 	}
@@ -419,7 +420,7 @@ func TestCheckNow(t *testing.T) {
 	r.srv.spawn = func(f func()) { f() }
 	h, f := r.addHost("aws", false)
 	shop(f)
-	r.do("GET", "/api/hosts/"+h.ID+"/services", nil)
+	r.do("GET", "/api/hosts/"+h.ID+"/services?check=1", nil)
 	before := f.Count("DistributionInspect")
 
 	rec := r.do("POST", "/api/hosts/"+h.ID+"/updates/check", nil)
@@ -649,7 +650,7 @@ func TestUpdateStatusIsRefreshedAfterAnAction(t *testing.T) {
 		return svc.Update.Status
 	}
 
-	status() // the first load starts the check
+	r.do("GET", "/api/hosts/"+h.ID+"/services?check=1", nil) // opening the list starts the check
 	if got := status(); got != "update_available" {
 		t.Fatalf("before the action: update = %q, want update_available", got)
 	}
@@ -892,5 +893,207 @@ func TestEverythingNeedsLoginWhenAPasswordIsSet(t *testing.T) {
 	}
 	if calls := f.CallLog(); len(calls) != 0 {
 		t.Errorf("calls = %q, want nothing done without a login", calls)
+	}
+}
+
+// Registries count lookups against a quota (Docker Hub allows 100 per six
+// hours without a login). A list left open refreshes itself every few seconds;
+// only opening it may start a check, or the quota drains and real pulls fail.
+func TestOnlyOpeningTheListStartsAnUpdateCheck(t *testing.T) {
+	r := newRig(t, nil)
+	r.srv.spawn = func(f func()) { f() }
+	h, f := r.addHost("aws", false)
+	shop(f)
+
+	for range 3 {
+		r.do("GET", "/api/hosts/"+h.ID+"/services", nil) // the periodic refresh
+	}
+	if n := f.Count("DistributionInspect"); n != 0 {
+		t.Fatalf("refreshes made %d registry lookups, want none", n)
+	}
+	r.do("GET", "/api/hosts/"+h.ID+"/services?check=1", nil) // the list being opened
+	if n := f.Count("DistributionInspect"); n == 0 {
+		t.Error("opening the list did not start a check")
+	}
+}
+
+// Restart, stop and start cannot change which image a service runs: they must
+// not cost a registry lookup, nor keep the service busy while one runs.
+func TestPlainActionsDoNotAskTheRegistry(t *testing.T) {
+	r := newRig(t, nil)
+	r.srv.spawn = func(f func()) { f() }
+	h, f := r.addHost("aws", false)
+	shop(f)
+	r.do("GET", "/api/hosts/"+h.ID+"/services?check=1", nil)
+	before := f.Count("DistributionInspect")
+
+	if rec := r.do("POST", actionPath(h.ID, "c~shop~api", "restart"), nil); rec.Code != 200 {
+		t.Fatalf("restart: %d", rec.Code)
+	}
+	time.Sleep(20 * time.Millisecond)
+	if got := f.Count("DistributionInspect"); got != before {
+		t.Errorf("a restart caused %d registry lookups", got-before)
+	}
+	// And what was known about updates is still known.
+	body := decode[servicesBody](t, r.do("GET", "/api/hosts/"+h.ID+"/services", nil))
+	if api, _ := body.service("c~shop~api"); api.Update.Status != "update_available" {
+		t.Errorf("update status after a restart = %q, want it unchanged", api.Update.Status)
+	}
+}
+
+// After a pull the registry is asked again, but as background work: the
+// action is over, its progress stream closed and the service free, before the
+// answer comes back.
+func TestTheUpdateCheckAfterAPullDoesNotHoldTheAction(t *testing.T) {
+	r := newRig(t, nil)
+	var mu sync.Mutex
+	var deferred []func()
+	r.srv.spawn = func(f func()) {
+		mu.Lock()
+		defer mu.Unlock()
+		deferred = append(deferred, f)
+	}
+	r.srv.tuneEnv = func(env *actions.Env) { env.StartGrace, env.Poll = 5*time.Millisecond, time.Millisecond }
+	h, f := r.addHost("aws", false)
+
+	const ref = "ghcr.io/acme/api:develop"
+	c := dockertest.Running("api-1", ref)
+	c.Image = "sha256:old"
+	f.AddContainer(c)
+	f.AddImage(ref, image.InspectResponse{ID: "sha256:old", RepoDigests: []string{"ghcr.io/acme/api@" + digestA}})
+	f.SetRemoteDigest(ref, digestB)
+	f.SetPullResult(ref, image.InspectResponse{ID: "sha256:new", RepoDigests: []string{"ghcr.io/acme/api@" + digestB}})
+
+	rec := r.do("POST", actionPath(h.ID, "s~api-1", "pull-restart"), nil)
+	if evs := events(t, rec); !evs[len(evs)-1].Done || evs[len(evs)-1].Level != "success" {
+		t.Fatalf("pull-restart: %+v", evs)
+	}
+	// The stream has ended. The check has been handed off, not run…
+	deadline := time.Now().Add(3 * time.Second)
+	queued := func() int { mu.Lock(); defer mu.Unlock(); return len(deferred) }
+	for queued() == 0 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if queued() != 1 {
+		t.Fatalf("background jobs handed off = %d, want the one update check", queued())
+	}
+	if n := f.Count("DistributionInspect"); n != 0 {
+		t.Errorf("the registry was asked %d times before the action ended", n)
+	}
+	// …and the service is already free for the next action.
+	if rec := r.do("POST", actionPath(h.ID, "s~api-1", "restart"), nil); rec.Code != 200 {
+		t.Errorf("an action right after the pull: status %d, want 200 (not busy)", rec.Code)
+	}
+	// Meanwhile the stale answer is gone rather than shown.
+	body := decode[servicesBody](t, r.do("GET", "/api/hosts/"+h.ID+"/services", nil))
+	if svc, _ := body.service("s~api-1"); svc.Update.Status != "unchecked" {
+		t.Errorf("update status before the re-check = %q, want unchecked", svc.Update.Status)
+	}
+	mu.Lock()
+	job := deferred[0]
+	mu.Unlock()
+	job()
+	body = decode[servicesBody](t, r.do("GET", "/api/hosts/"+h.ID+"/services", nil))
+	if svc, _ := body.service("s~api-1"); svc.Update.Status != "up_to_date" {
+		t.Errorf("update status after the re-check = %q, want up_to_date", svc.Update.Status)
+	}
+}
+
+// Stopping the panel while it is halfway through replacing a container would
+// leave that service down. Shutdown waits for running actions, and takes no
+// new ones.
+func TestDrainWaitsForRunningActions(t *testing.T) {
+	block := blockingAction{entered: make(chan struct{}), release: make(chan struct{})}
+	r := newRig(t, func(d *Deps) {
+		d.Actions = actions.Default()
+		d.Actions.Register(block)
+	})
+	h, f := r.addHost("aws", false)
+	shop(f)
+
+	running := make(chan *httptest.ResponseRecorder, 1)
+	go func() { running <- r.do("POST", actionPath(h.ID, "c~shop~api", "block"), nil) }()
+	<-block.entered
+
+	drained := make(chan error, 1)
+	go func() { drained <- r.srv.drain(context.Background()) }()
+	select {
+	case err := <-drained:
+		t.Fatalf("drain returned (%v) while an action was still running", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	wantError(t, r.do("POST", actionPath(h.ID, "s~redis-cache", "restart"), nil), http.StatusServiceUnavailable, "shutting_down")
+	if calls := f.CallLog(); len(calls) != 0 {
+		t.Errorf("calls = %q, want no new action started during shutdown", calls)
+	}
+
+	close(block.release)
+	select {
+	case err := <-drained:
+		if err != nil {
+			t.Errorf("drain: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("drain did not return after the action finished")
+	}
+	if rec := <-running; rec.Code != 200 {
+		t.Errorf("the running action: status %d", rec.Code)
+	}
+}
+
+func TestDrainGivesUpAtItsDeadline(t *testing.T) {
+	block := blockingAction{entered: make(chan struct{}), release: make(chan struct{})}
+	r := newRig(t, func(d *Deps) {
+		d.Actions = actions.Default()
+		d.Actions.Register(block)
+	})
+	h, f := r.addHost("aws", false)
+	shop(f)
+	go r.do("POST", actionPath(h.ID, "c~shop~api", "block"), nil)
+	<-block.entered
+	defer close(block.release)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	if err := r.srv.drain(ctx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("drain = %v, want it to give up at the deadline", err)
+	}
+}
+
+func TestDrainWithNothingRunningReturnsAtOnce(t *testing.T) {
+	r := newRig(t, nil)
+	done := make(chan error, 1)
+	go func() { done <- r.srv.drain(context.Background()) }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Errorf("drain: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("drain hung with no action running")
+	}
+}
+
+// The panel must not replace the container it runs in.
+func TestPullRestartOnThePanelItselfIsRefused(t *testing.T) {
+	var own string
+	r := newRig(t, func(d *Deps) { d.SelfContainerID = func() string { return own } })
+	h, f := r.addHost("local", false)
+	c := dockertest.Running("dockpanel", "ghcr.io/acme/dockpanel:latest")
+	c.Image = "sha256:old"
+	own = f.AddContainer(c)[:12]
+	f.AddImage("ghcr.io/acme/dockpanel:latest", image.InspectResponse{ID: "sha256:old"})
+	f.SetPullResult("ghcr.io/acme/dockpanel:latest", image.InspectResponse{ID: "sha256:new"})
+
+	evs := events(t, r.do("POST", actionPath(h.ID, "s~dockpanel", "pull-restart"), nil))
+	last := evs[len(evs)-1]
+	if last.Level != "error" || !strings.Contains(last.Step, "the panel's own container") {
+		t.Errorf("last event = %+v, want a refusal", last)
+	}
+	for _, call := range f.CallLog() {
+		if strings.HasPrefix(call, "ContainerStop") || strings.HasPrefix(call, "ContainerRename") {
+			t.Errorf("call %q: the panel started to replace itself", call)
+		}
 	}
 }

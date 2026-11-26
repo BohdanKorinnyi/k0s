@@ -197,10 +197,21 @@ type MergeOptions struct {
 	Follow bool
 }
 
+// MergedBacklogCap is the most lines read from each container for the merged
+// view's backlog. The backlog is held in memory to be sorted by time, Docker
+// keeps logs without limit by default, and the browser shows at most this
+// many lines anyway.
+const MergedBacklogCap = 10_000
+
 // MergedLogs reads the logs of several containers as one. The backlog is
 // sorted by time across the containers; when following, new lines are passed
 // on as they arrive. emit is never called concurrently.
 func MergedLogs(ctx context.Context, cli dockerapi.Client, containers []services.Container, o MergeOptions, emit func(LogLine)) error {
+	perContainer := strconv.Itoa(MergedBacklogCap)
+	if n, err := strconv.Atoi(o.Tail); err == nil && n >= 0 && n < MergedBacklogCap {
+		perContainer = o.Tail
+	}
+
 	backlogs := make([][]LogLine, len(containers))
 	errs := make([]error, len(containers))
 	var wg sync.WaitGroup
@@ -208,7 +219,7 @@ func MergedLogs(ctx context.Context, cli dockerapi.Client, containers []services
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			errs[i] = ReadLogs(ctx, cli, c.ID, c.Name, LogOptions{Tail: o.Tail}, func(l LogLine) {
+			errs[i] = ReadLogs(ctx, cli, c.ID, c.Name, LogOptions{Tail: perContainer}, func(l LogLine) {
 				backlogs[i] = append(backlogs[i], l)
 			})
 		}()

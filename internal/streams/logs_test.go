@@ -263,3 +263,20 @@ func TestLineWriterEmitsNothingForEmptyInput(t *testing.T) {
 		t.Errorf("lines = %+v, want none", got)
 	}
 }
+
+// The merged view holds every container's backlog in memory to sort it, and
+// Docker keeps logs without limit by default. The browser shows at most ten
+// thousand lines anyway, so no more than that is read per container.
+func TestMergedBacklogIsCapped(t *testing.T) {
+	cases := map[string]string{"all": "10000", "": "10000", "50000": "10000", "10000": "10000", "500": "500"}
+	for asked, want := range cases {
+		f := dockertest.New()
+		a := f.AddContainer(dockertest.Running("a", "app:1"))
+		if err := MergedLogs(ctx, f, []services.Container{{ID: a, Name: "a"}}, MergeOptions{Tail: asked}, func(LogLine) {}); err != nil {
+			t.Fatal(err)
+		}
+		if got := f.LastLogs().Tail; got != want {
+			t.Errorf("tail %q: the backlog was read with tail %q, want %q", asked, got, want)
+		}
+	}
+}

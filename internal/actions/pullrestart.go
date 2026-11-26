@@ -23,6 +23,9 @@ func (pullRestart) Info() Info {
 	return Info{ID: "pull-restart", Label: "Pull & restart", Destructive: true}
 }
 
+// ChangesImages marks the action as one after which update checks are stale.
+func (pullRestart) ChangesImages() bool { return true }
+
 // Applies when at least one container was created from a tag. A reference
 // pinned to a digest always means the same image, so there is nothing to pull.
 func (pullRestart) Applies(svc services.Service) bool {

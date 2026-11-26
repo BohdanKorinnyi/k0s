@@ -39,6 +39,9 @@ type Deps struct {
 	UI fs.FS
 	// Now is the clock; nil means time.Now.
 	Now func() time.Time
+	// SelfContainerID reports the ID of the container the panel runs in, or
+	// "" when it does not run in one. May be nil.
+	SelfContainerID func() string
 }
 
 type server struct {
@@ -52,6 +55,12 @@ type server struct {
 	busyMu sync.Mutex
 	busy   map[string]bool
 
+	// Actions in flight, so that shutdown can wait for them instead of
+	// abandoning a container half replaced.
+	actionsMu sync.Mutex
+	closing   bool
+	inFlight  sync.WaitGroup
+
 	// spawn runs background work. Tests replace it to run the work inline.
 	spawn func(func())
 	// tuneEnv, when set, adjusts what actions are given. Tests use it to
@@ -59,8 +68,53 @@ type server struct {
 	tuneEnv func(*actions.Env)
 }
 
+// Server is the panel's HTTP server.
+type Server struct{ s *server }
+
+// NewServer builds the server.
+func NewServer(d Deps) *Server { return &Server{s: newServer(d)} }
+
+// Handler returns the handler to serve.
+func (srv *Server) Handler() http.Handler { return srv.s.handler() }
+
+// Drain stops new actions from starting and waits for the running ones to
+// finish, or for ctx to end. Call it before shutting down: an action cut off
+// between stopping a container and starting its replacement leaves a service
+// down.
+func (srv *Server) Drain(ctx context.Context) error { return srv.s.drain(ctx) }
+
 // New returns the server's handler.
 func New(d Deps) http.Handler { return newServer(d).handler() }
+
+func (s *server) drain(ctx context.Context) error {
+	s.actionsMu.Lock()
+	s.closing = true
+	s.actionsMu.Unlock()
+
+	done := make(chan struct{})
+	go func() {
+		s.inFlight.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// beginAction registers an action as in flight, unless the server is
+// shutting down.
+func (s *server) beginAction() bool {
+	s.actionsMu.Lock()
+	defer s.actionsMu.Unlock()
+	if s.closing {
+		return false
+	}
+	s.inFlight.Add(1)
+	return true
+}
 
 func newServer(d Deps) *server {
 	if d.Now == nil {

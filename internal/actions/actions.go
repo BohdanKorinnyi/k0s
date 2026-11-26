@@ -87,6 +87,13 @@ type Action interface {
 	Run(ctx context.Context, env Env, t Target, report Progress) error
 }
 
+// ImageChanger is implemented by actions that can change which image a
+// service's containers run. After one of them, what is remembered about
+// available updates is stale and is checked again.
+type ImageChanger interface {
+	ChangesImages() bool
+}
+
 // Registry is an ordered set of actions.
 type Registry struct {
 	actions []Action

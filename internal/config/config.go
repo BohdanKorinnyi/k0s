@@ -23,6 +23,9 @@ type Config struct {
 	HealthTimeout time.Duration
 	// LocalSocket is the Docker socket offered as host "local" on first run.
 	LocalSocket string
+	// SSHDir is a folder of SSH keys and configuration, usually the user's
+	// ~/.ssh mounted read-only. Its files are copied to where ssh reads them.
+	SSHDir string
 }
 
 // DefaultAllowedHosts are always accepted: the machine talking to itself.
@@ -40,11 +43,15 @@ func Load(getenv func(string) string, readFile func(string) ([]byte, error)) (Co
 	}
 
 	c := Config{
-		Addr:          get("ADDR", ":8080"),
+		// Loopback by default: run on its own, the panel is not reachable
+		// from the network. The Docker image sets ADDR to all interfaces,
+		// which a container needs for its port to be published at all.
+		Addr:          get("ADDR", "127.0.0.1:8080"),
 		DataDir:       get("DATA_DIR", "/data"),
 		AllowedHosts:  append([]string(nil), DefaultAllowedHosts...),
 		HealthTimeout: 2 * time.Minute,
 		LocalSocket:   get("LOCAL_SOCKET", "/var/run/docker.sock"),
+		SSHDir:        get("SSH_DIR", "/ssh"),
 	}
 
 	for _, h := range strings.Split(getenv(key("ALLOWED_HOSTS")), ",") {

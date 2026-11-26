@@ -35,6 +35,10 @@ RUN apk add --no-cache ca-certificates openssh-client
 
 COPY --from=build /out/dockpanel /usr/local/bin/dockpanel
 
+# Inside a container the port must be open on every interface to be published
+# at all; who can reach it is decided by how the port is published.
+ENV DOCKPANEL_ADDR=:8080
+
 # Saved hosts, registry logins and remembered SSH host keys.
 VOLUME /data
 EXPOSE 8080

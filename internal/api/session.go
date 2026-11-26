@@ -20,6 +20,8 @@ const (
 	// At most this many wrong passwords are accepted per minute, in total.
 	maxLoginFailures = 10
 	loginWindow      = time.Minute
+	// How long a login request may take to send its few bytes.
+	loginReadLimit = 10 * time.Second
 )
 
 // sessionStore keeps logged-in sessions in memory. Restarting the panel logs
@@ -80,17 +82,23 @@ func (s *sessionStore) revoke(token string) {
 
 // failureLimiter slows password guessing: after a number of wrong passwords
 // within a minute, logins are refused until the minute has passed.
+//
+// A guess takes a slot before its password is even read, and gives it back
+// only if the password was right. Counting after the check instead would let
+// any number of guesses that arrive together all be checked.
 type failureLimiter struct {
 	now      func() time.Time
 	mu       sync.Mutex
 	failures []time.Time
+	pending  int // guesses that hold a slot and are not yet judged
 }
 
 func newFailureLimiter(now func() time.Time) *failureLimiter {
 	return &failureLimiter{now: now}
 }
 
-func (l *failureLimiter) blocked() bool {
+// begin takes a slot for one guess, or reports that there is none.
+func (l *failureLimiter) begin() bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	cutoff := l.now().Add(-loginWindow)
@@ -101,13 +109,21 @@ func (l *failureLimiter) blocked() bool {
 		}
 	}
 	l.failures = kept
-	return len(l.failures) >= maxLoginFailures
+	if len(l.failures)+l.pending >= maxLoginFailures {
+		return false
+	}
+	l.pending++
+	return true
 }
 
-func (l *failureLimiter) fail() {
+// end settles a guess begun earlier: a wrong one keeps its slot for a minute.
+func (l *failureLimiter) end(wrong bool) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.failures = append(l.failures, l.now())
+	l.pending--
+	if wrong {
+		l.failures = append(l.failures, l.now())
+	}
 }
 
 func (s *server) passwordSet() bool { return s.deps.Config.Password != "" }
@@ -148,25 +164,31 @@ func (s *server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]bool{"authenticated": true})
 		return
 	}
-	if s.logins.blocked() {
+	if !s.logins.begin() {
 		w.Header().Set("Retry-After", "60")
 		writeError(w, http.StatusTooManyRequests, "rate_limited", "too many wrong passwords; wait a minute and try again")
 		return
 	}
+	wrong := true
+	defer func() { s.logins.end(wrong) }()
+
+	// A guess may not sit on its slot, or a connection, by trickling its body.
+	_ = http.NewResponseController(w).SetReadDeadline(time.Now().Add(loginReadLimit))
 	var body struct {
 		Password string `json:"password"`
 	}
 	if !readJSON(w, r, &body) {
+		wrong = false // malformed, not a guess
 		return
 	}
 	// Compare digests, in constant time, so neither the length nor the
 	// position of the first wrong character can be timed.
 	given, want := sha256.Sum256([]byte(body.Password)), sha256.Sum256([]byte(s.deps.Config.Password))
 	if subtle.ConstantTimeCompare(given[:], want[:]) != 1 {
-		s.logins.fail()
 		writeError(w, http.StatusUnauthorized, "unauthenticated", "wrong password")
 		return
 	}
+	wrong = false
 
 	token, expires, err := s.sessions.create()
 	if err != nil {

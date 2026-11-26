@@ -19,8 +19,14 @@ func TestLoadDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if c.Addr != ":8080" {
-		t.Errorf("Addr = %q, want :8080", c.Addr)
+	// Loopback, so the program run on its own is not reachable from the
+	// network. The Docker image overrides this, because inside a container
+	// the port must be open to be published at all.
+	if c.Addr != "127.0.0.1:8080" {
+		t.Errorf("Addr = %q, want 127.0.0.1:8080", c.Addr)
+	}
+	if c.SSHDir != "/ssh" {
+		t.Errorf("SSHDir = %q, want /ssh", c.SSHDir)
 	}
 	if c.DataDir != "/data" {
 		t.Errorf("DataDir = %q, want /data", c.DataDir)
@@ -46,12 +52,13 @@ func TestLoadOverrides(t *testing.T) {
 		"DOCKPANEL_PASSWORD":       "hunter2",
 		"DOCKPANEL_HEALTH_TIMEOUT": "45s",
 		"DOCKPANEL_LOCAL_SOCKET":   "/run/user/1000/docker.sock",
+		"DOCKPANEL_SSH_DIR":        "/keys",
 	}), noFiles)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
 	if c.Addr != "127.0.0.1:9000" || c.DataDir != "/tmp/dp" || c.Password != "hunter2" ||
-		c.HealthTimeout != 45*time.Second || c.LocalSocket != "/run/user/1000/docker.sock" {
+		c.HealthTimeout != 45*time.Second || c.LocalSocket != "/run/user/1000/docker.sock" || c.SSHDir != "/keys" {
 		t.Errorf("overrides not applied: %+v", c)
 	}
 }

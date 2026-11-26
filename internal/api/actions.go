@@ -46,10 +46,16 @@ func (s *server) handleAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Shutdown waits for actions that are running; it does not take new ones.
+	if !s.beginAction() {
+		writeError(w, http.StatusServiceUnavailable, "shutting_down", "the panel is shutting down; try again in a moment")
+		return
+	}
 	// One action per service at a time. Checked before talking to Docker, so
 	// a second click is refused at once rather than queued behind the first.
 	lock := h.ID + "\x00" + r.PathValue("key")
 	if !s.acquire(lock) {
+		s.inFlight.Done()
 		writeError(w, http.StatusConflict, "busy", "another action is already running on this service")
 		return
 	}
@@ -57,6 +63,7 @@ func (s *server) handleAction(w http.ResponseWriter, r *http.Request) {
 	defer func() {
 		if !started {
 			s.release(lock)
+			s.inFlight.Done()
 		}
 	}()
 
@@ -119,6 +126,9 @@ func (s *server) handleAction(w http.ResponseWriter, r *http.Request) {
 	}
 
 	env := actions.Env{Docker: cli, Auth: s.deps.Auth, HealthTimeout: s.deps.Config.HealthTimeout}
+	if s.deps.SelfContainerID != nil {
+		env.SelfContainerID = s.deps.SelfContainerID()
+	}
 	if s.tuneEnv != nil {
 		s.tuneEnv(&env)
 	}
@@ -126,27 +136,34 @@ func (s *server) handleAction(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), actionTimeout)
 	started = true
 	go func() {
-		defer s.release(lock)
-		defer cancel()
-		defer close(events)
+		defer s.inFlight.Done()
 
 		err := runAction(ctx, action, env, target, send)
+		cancel()
 		final := actions.Event{Step: info.Label + " finished", Level: actions.LevelSuccess, Done: true}
 		if err != nil {
 			final = actions.Event{Step: err.Error(), Level: actions.LevelError, Done: true}
 		}
 		slog.Info("action", "host", h.ID, "service", svc.Key, "action", info.ID, "container", target.ContainerID, "error", err)
 
-		// An action may have changed which image the containers run (a pull,
-		// even a failed one, can move the tag). What was remembered about
-		// "is there an update" described the old state: drop it before the
-		// page reloads, then ask the registry again.
-		if s.deps.Updates != nil {
+		// A pull, even a failed one, can change which image the containers
+		// run. What was remembered about "is there an update" then describes
+		// the old state: drop it before the page reloads.
+		changer, _ := action.(actions.ImageChanger)
+		recheck := changer != nil && changer.ChangesImages() && s.deps.Updates != nil
+		if recheck {
 			s.deps.Updates.Invalidate(h.ID, svc.Images)
 		}
+
+		// The action is over: say so, end the progress stream, free the
+		// service. Asking the registry again can be slow, and must not hold
+		// any of that up, so it is handed off as background work.
 		send(final)
-		if s.deps.Updates != nil {
-			s.checkUpdates(h.ID, cli, svc.Images, true)
+		close(events)
+		s.release(lock)
+		if recheck {
+			refs := svc.Images
+			s.spawn(func() { s.checkUpdates(h.ID, cli, refs, true) })
 		}
 	}()
 

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -405,5 +406,49 @@ func TestOversizedBodyIsRefused(t *testing.T) {
 	rec := r.do("POST", "/api/login", big)
 	if rec.Code != http.StatusRequestEntityTooLarge && rec.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want the oversized body refused", rec.Code)
+	}
+}
+
+// The limit must hold when the guesses arrive together, not only one by one.
+func TestLoginRateLimitHoldsUnderConcurrency(t *testing.T) {
+	r := newRig(t, func(d *Deps) { d.Config.Password = "s3cret" })
+	const attempts = 80
+	codes := make(chan int, attempts)
+	var wg sync.WaitGroup
+	for range attempts {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			codes <- r.do("POST", "/api/login", map[string]string{"password": "wrong"}).Code
+		}()
+	}
+	wg.Wait()
+	close(codes)
+
+	checked := 0
+	for code := range codes {
+		switch code {
+		case http.StatusUnauthorized:
+			checked++
+		case http.StatusTooManyRequests:
+		default:
+			t.Errorf("unexpected status %d", code)
+		}
+	}
+	if checked > 10 {
+		t.Errorf("%d passwords were checked in one burst, want at most 10", checked)
+	}
+	if checked == 0 {
+		t.Error("no password was checked at all")
+	}
+}
+
+// A correct password does not use up the allowance.
+func TestSuccessfulLoginsAreNotCountedAsGuesses(t *testing.T) {
+	r := newRig(t, func(d *Deps) { d.Config.Password = "s3cret" })
+	for i := 0; i < 25; i++ {
+		if rec := r.do("POST", "/api/login", map[string]string{"password": "s3cret"}); rec.Code != http.StatusOK {
+			t.Fatalf("login %d: status %d", i+1, rec.Code)
+		}
 	}
 }

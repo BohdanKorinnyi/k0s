@@ -33,10 +33,15 @@ func (s *server) handleServices(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, s.toServicesResponse(h.ID, groups))
 
-	// Asking registries can be slow, so it never holds up the list. When the
-	// host's results have aged out, a check starts now and a later refresh of
-	// the list shows what it found.
-	if s.deps.Updates != nil && s.deps.Updates.StartIfDue(h.ID) {
+	// Asking registries can be slow, so it never holds up the list: a check
+	// starts in the background and a later refresh shows what it found.
+	//
+	// Only opening the list (?check=1) may start one, and only when the last
+	// is older than 15 minutes. The list also refreshes itself every few
+	// seconds for as long as its tab is open, and registries count lookups
+	// against a quota; checking on every refresh would use it up and make
+	// real pulls fail.
+	if r.URL.Query().Get("check") == "1" && s.deps.Updates != nil && s.deps.Updates.StartIfDue(h.ID) {
 		refs := imageRefs(groups)
 		s.spawn(func() { s.checkUpdates(h.ID, cli, refs, false) })
 	}
