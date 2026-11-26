@@ -13,7 +13,9 @@ test-go:
 	./scripts/go test -race ./...
 
 test-web:
-	@if [ -f web/package.json ]; then ./scripts/npm --prefix web test; else echo "web/ not present yet"; fi
+	@[ -d web/node_modules ] || ./scripts/npm --prefix web ci --no-audit --no-fund
+	./scripts/npm --prefix web run typecheck
+	./scripts/npm --prefix web test
 
 ## test-integration: tests against the local Docker daemon (creates and removes throwaway containers)
 test-integration:
