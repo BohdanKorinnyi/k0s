@@ -168,11 +168,11 @@ func TestState(t *testing.T) {
 	}
 
 	cases := []struct {
-		name        string
-		containers  []container.InspectResponse
-		state       string
-		running     int
-		wantExit    int
+		name       string
+		containers []container.InspectResponse
+		state      string
+		running    int
+		wantExit   int
 	}{
 		{"all running", []container.InspectResponse{running(1), running(2)}, "running", 2, 0},
 		{"one restarting wins over unhealthy", []container.InspectResponse{unhealthy(1), restarting(2)}, "restarting", 1, 0},
