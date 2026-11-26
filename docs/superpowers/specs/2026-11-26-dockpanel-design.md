@@ -1,0 +1,205 @@
+# dockpanel — design
+
+Date: 2026-11-26
+Status: approved to build (owner said "looks good, implement" after scope and layout were agreed; technical calls below are marked as such)
+
+`dockpanel` is a working name. The project folder is `K0s`, which clashes with k0s (a Kubernetes distribution) and cannot be the public name. The name must be defined in as few places as possible so it can be changed later.
+
+## 1. Intent
+
+One web control panel for Docker running on several hosts. Pick a host, see what is running, and do the handful of things a developer does all day: restart a service, pull the newest image for its tag and restart, read logs, look at env vars, open a shell.
+
+The owner does this today by switching `DOCKER_HOST` between remote hosts (for example one on AWS, one on GCP) and typing commands. The panel replaces that juggling.
+
+It is published as open source for other people to run and to extend with features they want. The owner uses it first.
+
+## 2. Goals, non-goals, anti-goals
+
+**Goals**
+
+- Switch between named hosts in one click.
+- Per host, a services list: service name, container names, container count, image and tag, status.
+- Per service: restart, start, stop, pull newest tag and restart.
+- Per container: logs, env vars, a shell in the browser, basic info.
+- A badge when a newer image exists for a service's tag.
+- Runs as one Docker container on Linux, macOS and Windows. The only prerequisite is Docker.
+- A stranger can run it from the README in a few minutes, and can add an action or a tab by following the contributor guide.
+
+**Non-goals (first version)**
+
+- Rebuild from source or anything else that needs compose files or source code.
+- Swarm services, Kubernetes.
+- Live CPU and memory, comparing a service across hosts, action history, disk cleanup, scaling.
+- User accounts and roles.
+- A plugin system (see section 9 for what replaces it).
+- Agents installed on hosts.
+
+**Anti-goals** (would make it a failure even if it works)
+
+- Unsafe by default. It gives shell access and shows secrets; a default install must not be reachable or drivable by anything other than the person at the machine.
+- Needing setup on the servers before it is useful.
+- A pull-and-restart that silently changes how a container is configured, or leaves a service down when the new image is bad.
+- A codebase where adding a button means touching many unrelated files.
+
+## 3. Constraints
+
+- Not exposed to the internet; runs on the user's own machine or private network.
+- Must not assume anything about the machine it runs on (no reading the user's shell config or Docker contexts). Hosts are added by the person running it.
+- Everything works through the Docker connection alone.
+- Licence: MIT.
+
+## 4. Approaches
+
+The owner left the how to the builder; these are the builder's calls.
+
+**How the panel reaches hosts**
+
+1. **Direct connection, no agent — picked.** The panel talks to each Docker daemon over a connection string, the same values people put in `DOCKER_HOST`: `ssh://`, `tcp://` (optionally with TLS), or the local socket. Nothing to install on servers, and it works with access people already have. Cost: things that need files on the server (rebuild) are out of reach, and each host must be reachable from where the panel runs.
+2. **An agent on every host** (as Portainer, Dockge and Komodo do). Gives file access on the host and works through NAT. Cost: something to install, secure and keep updated on every server, plus a protocol between panel and agents. Far more to build, and it breaks "no setup on servers".
+3. **Drive the `docker` command line** from the backend. Behaves exactly like what people type. Cost: parsing text output, one process per request, awkward streaming for logs and shells. Its main advantage is compose commands, which need compose files and are out of scope.
+
+Picked 1 because every feature in scope works over the Docker connection, and "nothing to install on servers" is what makes a tool like this easy to adopt.
+
+**Language**
+
+- **Go backend, React + TypeScript frontend — picked.** Go has Docker's own client library, handles `ssh://` hosts the way the `docker` command does, and produces one small binary and image.
+- TypeScript end to end: one language for contributors, but a weaker Docker client, less faithful `ssh://` behaviour, and a much larger image.
+
+## 5. What the owner decided
+
+- Hosts are switched in the UI; each host lists its services.
+- List columns: service name, container name, number of containers, image with tag.
+- Actions: restart; pull the newest image for the tag and restart. Rebuild is **not** in the first version.
+- Logs, env vars and a browser shell per container. ("SSH from the web" is delivered as a shell opened inside the container through Docker; no SSH server in the container is needed.)
+- Published as open source, for others to run and extend.
+- First-version scope as in section 6, including the builder's proposed additions (status, start/stop, log follow/search/download, masked env values, update badge, protected hosts, registry logins).
+- Layout: a plain services list, and each service opens as its own full page.
+
+## 6. What it does
+
+### 6.1 Hosts
+
+- A host has a name, a connection string, an optional TLS bundle (CA certificate, client certificate, client key, pasted as PEM) and a **protected** flag.
+- Hosts are added, edited, tested and removed in Settings. "Test connection" shows the Docker version on success or the error.
+- First run: if the local Docker socket is mounted into the panel's container, a host named `local` is added automatically so the first screen is not empty.
+- Hosts appear as tabs along the top of the services list, each with a status dot. An unreachable host shows the error when selected, with a retry button, rather than an empty list.
+- `ssh://` hosts authenticate with the SSH keys or SSH agent the user passes into the container (documented per operating system). The panel does not store SSH private keys. Unknown host keys are trusted on first use and remembered in the data volume (builder's call).
+
+### 6.2 Services list (one page per host)
+
+A full-width table grouped by Compose project.
+
+- **What counts as a service.** Containers created by Docker Compose are grouped by their project and service labels. Any other container is its own one-container service under a "No project" group, named after the container.
+- **Columns:** service name; container names; count as running/total (for example `2/2`); image and tag; status; a row of action buttons.
+- **Image column.** The image reference the containers were created with. If containers of one service use different images, show "mixed" with the list on hover.
+- **Status.** Running, unhealthy, restarting or stopped (with exit code), plus uptime and the restart count when it is above zero. One unhealthy or restarting container makes the row show that state.
+- **Update badge** next to the image when a newer image exists (6.6).
+- Stopped services are shown, dimmed, with a start button. A "hide stopped" toggle and a filter box narrow the list (builder's call; the owner asked for "running services", but a crashed service is the one you most need to see).
+- Clicking a row opens the service page. Row buttons: restart, pull and restart, logs, shell (the last two open the service page on that tab), and a menu with start and stop.
+- The list refreshes itself every few seconds while the page is visible.
+
+### 6.3 Service page
+
+Its own full page with a link that can be bookmarked (host, service, selected container and tab are all in the URL).
+
+- Header: back link, host / project / service, image and tag, update badge, and buttons for restart, pull and restart, stop or start.
+- Left: the service's containers with a status dot each. Selecting one scopes the tabs to it. For logs there is also "All together".
+- Each container in the left list has its own restart, stop and start.
+- Tabs:
+  - **Logs.** Last 500 lines by default (100, 500, 2000 or all), follows live, timestamps on or off, line wrap on or off, search within what is loaded, download as a text file, full-screen toggle. Colour codes in logs are rendered. "All together" merges the containers' logs with the container name in front of each line.
+  - **Env.** Name and value table for the selected container, with a filter box. Values are masked; a click reveals one, and "Reveal all" reveals the lot. Values are sent to the browser only when revealed (builder's call).
+  - **Shell.** A terminal inside the selected container. Uses bash when the container has it, otherwise sh. Resizes with the window, has a full-screen toggle and a reconnect button. Closing the page ends the session. A container with no shell, or one that is not running, gets a clear message instead of a dead terminal.
+  - **Info.** Image reference, image ID and digest, created and started times, state and health, restart policy and count, command, ports, mounts, networks and addresses, labels (collapsed), and Compose project, service and working directory.
+
+### 6.4 Actions
+
+Service-level actions apply to every container of the service, one at a time.
+
+- **Restart, start, stop.** The plain Docker operations. Same container, same image.
+- **Pull and restart.**
+  1. Pull the service's image reference on the host, using a saved registry login when one matches the registry.
+  2. For each container whose image is now out of date, replace it: stop it, create a new container with the same name and the same settings on the new image, start it, then remove the old one.
+  3. If nothing new was pulled and every container already runs the current image, do nothing and say "already up to date".
+- **Replacement must be faithful.** The new container keeps everything the user configured: name, env, command, ports, mounts and volumes (including anonymous volumes), networks with aliases and fixed addresses, restart policy, labels, limits. Settings the old container merely inherited from the *old image* (default env, command, entrypoint, working directory, labels, exposed ports, health check) must not be copied, so the new image's defaults take effect. This is the usual trap: a container's reported configuration mixes what the user set with what the image supplied, and copying it whole pins the old image's defaults.
+- **Compose must still recognise the container.** Compose labels are kept. The label in which Compose records the image ID is updated to the new image, so a later `docker compose up` does not replace the container again for no reason.
+- **A bad image must not take the service down.** One container at a time. After starting a replacement, wait until it is running (and healthy, when it has a health check, up to a time limit). If it fails to start or turns unhealthy, put the old container back, stop, and report; remaining containers stay on the old image.
+- Old images are left on the host.
+- **Progress** is shown step by step while an action runs (pulling, replacing `shop-api-1`, done), and the final result or error stays visible until dismissed.
+
+### 6.5 Confirmation and protected hosts
+
+- Ordinary host: restart and start run at once. Stop and pull-and-restart ask for one click of confirmation.
+- Protected host: restart, start, stop and pull-and-restart each require typing the service name. Protected hosts show a lock in the host tab.
+
+### 6.6 Update badge
+
+- For each service, compare the digest of the image the host has for that reference with the digest the registry currently serves for the same reference. Different means "update available".
+- The registry is asked through the host's own Docker daemon, so registries reachable only from the host still work, using the saved registry login when one matches.
+- Three states: up to date (no badge), update available (badge), unknown (grey mark with the reason on hover: needs a login, built locally, registry error).
+- Checked when a host's list is opened and the last check is older than 15 minutes, and on a "Check now" button. Results are kept in memory. Images pinned by digest and images that exist only locally are not checked.
+
+### 6.7 Registry logins
+
+- Settings holds a list of registry logins: registry address, username, password or token.
+- Used for pulls and update checks when the image's registry matches.
+- Passwords are write-only: once saved they are never sent back to the browser.
+- First version stores fixed credentials only. Registries with short-lived tokens (AWS ECR) work until the token expires; automatic refresh is the first candidate for a later addition, and the code must make that a small one (section 9).
+
+### 6.8 Safe defaults
+
+- The documented way to run it publishes the port on the local machine only (`127.0.0.1`).
+- Optional password, set by an environment variable (or a file, for Docker secrets). When set, the panel requires login and keeps a session cookie. When not set, there is no login.
+- The panel only answers requests addressed to an allowed hostname (by default `localhost` and the loopback addresses; more can be added by environment variable), and refuses state-changing requests and live connections that come from another website. Without both checks, any web page the user visits could drive a panel listening on localhost.
+- If extra hostnames are allowed and no password is set, the panel logs a clear warning at start.
+- Registry passwords and TLS keys are never returned by the API. The data file is readable only by its owner.
+
+## 7. How it is built
+
+Builder's calls throughout.
+
+- **One Go program** serving both the API and the built frontend, shipped as one multi-architecture Docker image (amd64 and arm64) that also contains an SSH client for `ssh://` hosts.
+- **Frontend:** React + TypeScript built with Vite, a terminal component (xterm.js) for the shell, plain CSS with light and dark themes following the system setting.
+- **Storage:** one JSON file in a data volume (`/data`) holding hosts, registry logins and settings. No database.
+- **Live data:** logs and shells travel over WebSocket connections; everything else is ordinary JSON over HTTP.
+- **Configuration** by environment variables with one prefix: listen address, data directory, password, allowed hostnames.
+- **Parts of the backend,** each with one job:
+  - *store* — reads and writes the data file.
+  - *hosts* — turns a saved host into a live Docker connection (socket, TCP with TLS, SSH) and reuses it.
+  - *services* — groups a host's containers into services and works out status.
+  - *actions* — the action list and each action; includes the faithful container replacement.
+  - *updates* — the update check and its cache.
+  - *streams* — logs and shell sessions.
+  - *api* — routes, login, the hostname and cross-site checks.
+- **Parts of the frontend:** pages (services list, service page, settings, login), panels (one per tab), a small API client, shared components.
+
+## 8. Testing and delivery
+
+- Backend logic is tested against a stand-in for Docker, so grouping, status, the replacement rules and the security checks are covered without a daemon.
+- A second set of tests runs against a real local Docker daemon (opt-in), covering list, restart, pull-and-restart, logs and shell end to end.
+- Frontend logic (masking, log search, URL handling, confirmation rules) has unit tests.
+- Everything can be built and tested with Docker alone, through a Makefile; local Go or Node are optional.
+- Continuous integration (GitHub Actions) runs the tests and builds the image.
+- Documents: README (what it is, quick start, connecting hosts including SSH on each operating system, registries, security notes), CONTRIBUTING (layout, "add an action", "add a tab"), SECURITY, LICENSE.
+
+## 9. Extending it
+
+No plugin system in the first version. Instead, three seams, each documented with a worked example:
+
+- **Actions.** Each action is one self-contained unit on the backend that declares its name, label, whether it is destructive, and which services it applies to. The frontend draws action buttons from that list, so a new backend action appears in the UI without frontend changes unless it needs its own screen.
+- **Tabs.** Each tab on the service page is one self-contained unit on the frontend, registered in one list.
+- **Registry login types.** Fixed credentials are one implementation of "something that can produce a login for a registry". ECR or cloud-specific logins are added as further implementations.
+
+A plugin interface can follow once real extensions show what it needs.
+
+## 10. Left to the builder
+
+- Exact API paths and payloads, URL scheme, and how action progress is streamed.
+- Refresh intervals, log buffer limits, health-wait time limits.
+- How Compose one-off containers are shown.
+- SSH details: connection reuse, handling of client config options that only exist on macOS.
+- Visual design within the agreed layout.
+- Edge cases in replacement that cannot be reproduced faithfully (containers that share another container's network or volumes by ID): detect, refuse, and say why rather than guess.
+
+## 11. Later
+
+In rough order of expected demand: rebuild from source, ECR and cloud registry logins, live CPU and memory, action history, comparing a service across hosts, disk usage and cleanup, scaling, Swarm, user accounts, a plugin interface.

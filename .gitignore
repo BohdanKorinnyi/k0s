@@ -1,0 +1,23 @@
+# brainstorming mockups (local only)
+.superpowers/
+
+# app data (hosts, registry logins)
+/data/
+
+# build output
+/bin/
+/web/dist/
+/web/node_modules/
+/internal/webui/dist/*
+!/internal/webui/dist/.gitkeep
+
+# editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# env files
+.env
+.env.*
+!.env.example
