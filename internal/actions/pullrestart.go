@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/moby/moby/client"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 
 	"dockpanel/internal/registryauth"
 	"dockpanel/internal/services"
@@ -47,21 +48,37 @@ func (pullRestart) Run(ctx context.Context, env Env, t Target, report Progress) 
 		}
 	}
 	for _, ref := range refs {
-		if err := pull(ctx, env, ref, report); err != nil {
+		if err := pull(ctx, env, ref, platformInUse(ctx, env, t.Service, ref), report); err != nil {
 			return err
 		}
 	}
 
-	replacedAny := false
+	var todo []services.Container
 	for _, c := range t.Service.Containers {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
 		if !registryauth.Pullable(c.Image) {
 			report(Event{Step: c.Name + " is pinned to an exact image; left as it is", Level: LevelInfo})
 			continue
 		}
+		todo = append(todo, c)
+	}
+
+	replacedAny := false
+	for i, c := range todo {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		replaced, err := Replace(ctx, env, c.ID, report)
+		if errors.Is(err, ErrStillStarting) {
+			// The new container is running but nothing has vouched for it.
+			// Do not replace the rest on trust: if the image is bad, the
+			// remaining containers are what keeps the service up.
+			if rest := todo[i+1:]; len(rest) > 0 {
+				return fmt.Errorf("%s is on the new image but its health check has not passed yet, so %s left on the previous image. Run the action again once %s is healthy",
+					c.Name, leftAlone(rest), c.Name)
+			}
+			replacedAny = true
+			continue
+		}
 		if err != nil {
 			// Stop here: the remaining containers keep running the old image,
 			// so a bad image never takes the whole service down.
@@ -75,15 +92,46 @@ func (pullRestart) Run(ctx context.Context, env Env, t Target, report Progress) 
 	return nil
 }
 
+func leftAlone(rest []services.Container) string {
+	names := make([]string, len(rest))
+	for i, c := range rest {
+		names[i] = c.Name
+	}
+	if len(names) == 1 {
+		return names[0] + " was"
+	}
+	return strings.Join(names, ", ") + " were"
+}
+
+// platformInUse returns the platform of the image that containers using ref
+// run now, so the pull asks for the same one. Without it Docker pulls the
+// host's native variant, and a container deliberately run for another
+// platform would be switched.
+func platformInUse(ctx context.Context, env Env, svc services.Service, ref string) *ocispec.Platform {
+	for _, c := range svc.Containers {
+		if c.Image != ref || c.ImageID == "" {
+			continue
+		}
+		if img, err := env.Docker.ImageInspect(ctx, c.ImageID); err == nil {
+			return platformOf(img.InspectResponse)
+		}
+	}
+	return nil
+}
+
 // pull fetches one image reference on the host, relaying Docker's summary
 // lines. Per-layer progress is left out: it is noise in a step list.
-func pull(ctx context.Context, env Env, ref string, report Progress) error {
+func pull(ctx context.Context, env Env, ref string, platform *ocispec.Platform, report Progress) error {
 	report(Event{Step: "Pulling " + ref, Level: LevelInfo})
 	auth, err := registryauth.Encoded(ctx, env.Auth, ref)
 	if err != nil {
 		return fmt.Errorf("registry login for %s: %w", ref, err)
 	}
-	resp, err := env.Docker.ImagePull(ctx, ref, client.ImagePullOptions{RegistryAuth: auth})
+	options := client.ImagePullOptions{RegistryAuth: auth}
+	if platform != nil {
+		options.Platforms = []ocispec.Platform{*platform}
+	}
+	resp, err := env.Docker.ImagePull(ctx, ref, options)
 	if err != nil {
 		return fmt.Errorf("pull %s: %w", ref, err)
 	}

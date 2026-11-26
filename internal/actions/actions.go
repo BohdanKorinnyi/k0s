@@ -59,6 +59,10 @@ type Env struct {
 	StartGrace time.Duration
 	// Poll is the interval between checks while waiting.
 	Poll time.Duration
+	// SelfContainerID is the ID (or its 12-character short form) of the
+	// container the panel itself runs in, when it runs in one. Actions that
+	// would stop that container halfway through their own work refuse.
+	SelfContainerID string
 }
 
 // Info describes an action to the user interface.

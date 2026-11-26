@@ -18,6 +18,7 @@ import (
 	"github.com/moby/moby/api/types/mount"
 	"github.com/moby/moby/api/types/network"
 	"github.com/moby/moby/client"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
 // The label in which Docker Compose records the image a container was made
@@ -26,6 +27,16 @@ import (
 const composeImageLabel = "com.docker.compose.image"
 
 // Defaults for Env fields left at zero.
+// ErrStillStarting is returned by Replace, together with true, when the new
+// container was kept but its health check had not passed by the time limit.
+// The container is not rolled back — it may only be slow — but nothing has
+// vouched for it, and a caller replacing several containers should stop.
+var ErrStillStarting = errors.New("its health check has not passed yet")
+
+// maxHealthWait bounds how long a single replacement is waited for, whatever
+// its health schedule says.
+const maxHealthWait = 10 * time.Minute
+
 const (
 	defaultHealthTimeout = 2 * time.Minute
 	defaultStartGrace    = 3 * time.Second
@@ -35,7 +46,8 @@ const (
 
 // Replace swaps one container for a new one made from the image its reference
 // points to now, keeping its name and everything the user configured. It
-// reports false when the container already runs that image.
+// reports false when the container already runs that image, and true with
+// ErrStillStarting when the replacement was kept without a passed health check.
 //
 // The old container is parked under another name until the new one is up. If
 // the new one cannot be created, fails to start, or turns unhealthy, it is
@@ -52,6 +64,9 @@ func Replace(ctx context.Context, env Env, containerID string, report Progress) 
 		return false, fmt.Errorf("%s: Docker returned an incomplete description of the container", name)
 	}
 
+	if env.SelfContainerID != "" && strings.HasPrefix(old.ID, env.SelfContainerID) {
+		return false, fmt.Errorf("%s is the panel's own container: stopping it would stop the panel halfway through the replacement. Update the panel from outside instead (pull its image and run it again, or `docker compose pull && docker compose up -d`)", name)
+	}
 	if reason := refuseReason(old); reason != "" {
 		return false, fmt.Errorf("%s cannot be replaced automatically: %s", name, reason)
 	}
@@ -140,12 +155,14 @@ func Replace(ctx context.Context, env Env, containerID string, report Progress) 
 		}
 	}
 
+	confirmed := true
 	if wasUp {
 		report(Event{Step: "Starting " + name, Level: LevelInfo})
 		if _, err := cli.ContainerStart(ctx, newID, client.ContainerStartOptions{}); err != nil {
 			return false, rollback(fmt.Errorf("start %s: %w", name, err))
 		}
-		if err := waitUntilUp(ctx, env, newID, name, report); err != nil {
+		confirmed, err = waitUntilUp(ctx, env, newID, name, report)
+		if err != nil {
 			return false, rollback(err)
 		}
 	}
@@ -153,15 +170,42 @@ func Replace(ctx context.Context, env Env, containerID string, report Progress) 
 	// Volumes are kept: the anonymous ones now belong to the new container.
 	if _, err := cli.ContainerRemove(ctx, old.ID, client.ContainerRemoveOptions{}); err != nil {
 		report(Event{Step: fmt.Sprintf("%s is replaced, but the previous container could not be removed and is left as %s: %v", name, parked, err), Level: LevelWarning})
-		return true, nil
+	} else {
+		report(Event{Step: "Replaced " + name, Level: LevelInfo})
 	}
-	report(Event{Step: "Replaced " + name, Level: LevelInfo})
+	if !confirmed {
+		return true, ErrStillStarting
+	}
 	return true, nil
 }
 
+// healthBudget is how long to wait for a container's health check to reach a
+// verdict: at least floor, and at least as long as the container's own
+// schedule needs to declare it unhealthy (start period, then the retries).
+// Shorter than that, a check that is failing would be taken for a slow start.
+func healthBudget(hc *container.HealthConfig, floor time.Duration) time.Duration {
+	if hc == nil {
+		return floor
+	}
+	// Docker's defaults for whatever the container does not set.
+	interval, timeout, retries := hc.Interval, hc.Timeout, hc.Retries
+	if interval <= 0 {
+		interval = 30 * time.Second
+	}
+	if timeout <= 0 {
+		timeout = 30 * time.Second
+	}
+	if retries <= 0 {
+		retries = 3
+	}
+	needed := hc.StartPeriod + time.Duration(retries)*(interval+timeout) + 5*time.Second
+	return min(max(floor, needed), maxHealthWait)
+}
+
 // waitUntilUp watches a just-started container until it can be trusted: it
-// stays running for a moment, or its health check passes.
-func waitUntilUp(ctx context.Context, env Env, id, name string, report Progress) error {
+// stays running for a moment, or its health check passes. It reports false,
+// without an error, when the health check was still undecided at the limit.
+func waitUntilUp(ctx context.Context, env Env, id, name string, report Progress) (bool, error) {
 	healthTimeout, grace, poll := env.HealthTimeout, env.StartGrace, env.Poll
 	if healthTimeout <= 0 {
 		healthTimeout = defaultHealthTimeout
@@ -178,21 +222,25 @@ func waitUntilUp(ctx context.Context, env Env, id, name string, report Progress)
 	for {
 		res, err := env.Docker.ContainerInspect(ctx, id, client.ContainerInspectOptions{})
 		if err != nil {
-			return fmt.Errorf("check %s after starting it: %w", name, err)
+			return false, fmt.Errorf("check %s after starting it: %w", name, err)
 		}
 		c := res.Container
 		if c.State == nil {
-			return fmt.Errorf("check %s after starting it: no state reported", name)
+			return false, fmt.Errorf("check %s after starting it: no state reported", name)
 		}
 		if !c.State.Running {
 			detail := fmt.Sprintf("exit code %d", c.State.ExitCode)
 			if c.State.Error != "" {
 				detail += ": " + c.State.Error
 			}
-			return fmt.Errorf("the new %s stopped right after starting (%s)", name, detail)
+			return false, fmt.Errorf("the new %s stopped right after starting (%s)", name, detail)
 		}
 		if c.State.Restarting || c.RestartCount > 0 {
-			return fmt.Errorf("the new %s keeps crashing and being restarted", name)
+			return false, fmt.Errorf("the new %s keeps crashing and being restarted", name)
+		}
+		limit := healthTimeout
+		if c.Config != nil {
+			limit = healthBudget(c.Config.Healthcheck, healthTimeout)
 		}
 
 		elapsed := time.Since(started)
@@ -203,26 +251,26 @@ func waitUntilUp(ctx context.Context, env Env, id, name string, report Progress)
 		switch health {
 		case container.NoHealthcheck:
 			if elapsed >= grace {
-				return nil
+				return true, nil
 			}
 		case container.Healthy:
-			return nil
+			return true, nil
 		case container.Unhealthy:
-			return fmt.Errorf("the new %s became unhealthy", name)
+			return false, fmt.Errorf("the new %s became unhealthy", name)
 		default: // starting
 			if !announced {
 				report(Event{Step: "Waiting for " + name + " to become healthy", Level: LevelInfo})
 				announced = true
 			}
-			if elapsed >= healthTimeout {
-				report(Event{Step: fmt.Sprintf("%s is still starting after %s; left running on the new image", name, healthTimeout.Round(time.Second)), Level: LevelWarning})
-				return nil
+			if elapsed >= limit {
+				report(Event{Step: fmt.Sprintf("%s is still starting after %s; left running on the new image", name, limit.Round(time.Second)), Level: LevelWarning})
+				return false, nil
 			}
 		}
 
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return false, ctx.Err()
 		case <-time.After(poll):
 		}
 	}
@@ -372,7 +420,25 @@ func buildCreate(old container.InspectResponse, oldImg, newImg image.InspectResp
 	}
 
 	// Anonymous volumes have no name in the settings, only in the running
-	// container. Bind them by name so the new container gets the same data.
+	// container. Left that way the new container would be given fresh, empty
+	// ones — the service would come back without its data. Name them.
+	//
+	// First the ones declared through the mount API with no source, which is
+	// how Compose declares a service's anonymous volumes: give each mount the
+	// name of the volume the old container actually has there.
+	inUse := map[string]string{}
+	for _, m := range old.Mounts {
+		if m.Type == mount.TypeVolume && m.Name != "" {
+			inUse[m.Destination] = m.Name
+		}
+	}
+	for i := range hc.Mounts {
+		if m := &hc.Mounts[i]; m.Type == mount.TypeVolume && m.Source == "" {
+			m.Source = inUse[m.Target]
+		}
+	}
+	// Then the ones that appear in no setting at all (the image's VOLUME
+	// lines, or `-v /path`): bind them by name.
 	for _, m := range old.Mounts {
 		if m.Type != mount.TypeVolume || m.Name == "" || mountConfigured(hc, m.Destination) {
 			continue
@@ -393,7 +459,19 @@ func buildCreate(old container.InspectResponse, oldImg, newImg image.InspectResp
 	if len(primary) > 0 {
 		opts.NetworkingConfig = &network.NetworkingConfig{EndpointsConfig: primary}
 	}
+	// Stay on the platform the container was running, e.g. amd64 under
+	// emulation on an arm64 host; otherwise Docker would pick the native one.
+	opts.Platform = platformOf(oldImg)
 	return opts, extra, nil
+}
+
+// platformOf returns the platform an image was built for, or nil when the
+// image does not say.
+func platformOf(img image.InspectResponse) *ocispec.Platform {
+	if img.Os == "" || img.Architecture == "" {
+		return nil
+	}
+	return &ocispec.Platform{OS: img.Os, Architecture: img.Architecture, Variant: img.Variant}
 }
 
 // mountConfigured reports whether the settings already say what is mounted at

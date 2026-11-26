@@ -519,11 +519,17 @@ func TestReplaceStillStarting(t *testing.T) {
 		}
 	}
 	replaced, err := r.replace()
-	if err != nil || !replaced {
-		t.Fatalf("Replace = %v, %v; a slow start must not be rolled back", replaced, err)
+	// A slow start is not rolled back: the container was replaced and kept.
+	// But its health was never confirmed, and the caller is told so, so that
+	// it does not go on to replace the rest of the service on trust.
+	if !replaced || !errors.Is(err, ErrStillStarting) {
+		t.Fatalf("Replace = %v, %v; want true with ErrStillStarting", replaced, err)
 	}
-	if c, _ := r.f.Container("api-1"); c.Image != newImageID {
-		t.Errorf("api-1 runs %s, want the new image kept", c.Image)
+	if c, _ := r.f.Container("api-1"); c.Image != newImageID || !c.State.Running {
+		t.Errorf("api-1 = image %s running %v, want the new image kept running", c.Image, c.State.Running)
+	}
+	if _, parked := r.f.Container(r.temp); parked {
+		t.Error("the old container was left parked")
 	}
 	warned := slices.ContainsFunc(r.rec.events, func(e Event) bool {
 		return e.Level == LevelWarning && strings.Contains(e.Step, "still starting")
@@ -635,5 +641,103 @@ func TestReplaceOldContainerCannotBeRemoved(t *testing.T) {
 	})
 	if !warned {
 		t.Errorf("events = %q, want a warning naming the leftover container", r.rec.steps())
+	}
+}
+
+// Compose declares a service's anonymous volumes through the mount API, with
+// no source. Copied as it is, such a mount makes Docker create a new, empty
+// volume: the service would come back without its data.
+func TestBuildCreateAnonymousMount(t *testing.T) {
+	_, hc := build(t, ocispec.ImageConfig{}, func(c *container.InspectResponse) {
+		c.HostConfig.Mounts = []mount.Mount{
+			{Type: mount.TypeVolume, Target: "/var/lib/mysql"},              // anonymous: no source
+			{Type: mount.TypeVolume, Source: "uploads", Target: "/uploads"}, // named
+			{Type: mount.TypeBind, Source: "/srv/conf", Target: "/etc/app"}, // a host path
+			{Type: mount.TypeTmpfs, Target: "/tmp"},                         // not a volume
+		}
+		c.Mounts = []container.MountPoint{
+			{Type: mount.TypeVolume, Name: "f3a9c1anon", Destination: "/var/lib/mysql", RW: true},
+			{Type: mount.TypeVolume, Name: "uploads", Destination: "/uploads", RW: true},
+			{Type: mount.TypeBind, Source: "/srv/conf", Destination: "/etc/app"},
+		}
+	})
+	want := []mount.Mount{
+		{Type: mount.TypeVolume, Source: "f3a9c1anon", Target: "/var/lib/mysql"},
+		{Type: mount.TypeVolume, Source: "uploads", Target: "/uploads"},
+		{Type: mount.TypeBind, Source: "/srv/conf", Target: "/etc/app"},
+		{Type: mount.TypeTmpfs, Target: "/tmp"},
+	}
+	if !reflect.DeepEqual(hc.Mounts, want) {
+		t.Errorf("Mounts = %+v\nwant     %+v", hc.Mounts, want)
+	}
+	if len(hc.Binds) != 0 {
+		t.Errorf("Binds = %v, want none: the volume is already carried by its mount", hc.Binds)
+	}
+}
+
+// A container run for another platform (amd64 on an arm64 host) must stay on
+// that platform, not quietly become native.
+func TestBuildCreatePlatform(t *testing.T) {
+	old := dockertest.Running("api-1", "app:develop")
+	old.ID = strings.Repeat("ab", 32)
+	old.Image = oldImageID
+	oldImg := imageWith(oldImageID, ocispec.ImageConfig{}, nil)
+	oldImg.Os, oldImg.Architecture, oldImg.Variant = "linux", "arm", "v7"
+
+	opts, _, err := buildCreate(old, oldImg, imageWith(newImageID, ocispec.ImageConfig{}, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p := opts.Platform; p == nil || p.OS != "linux" || p.Architecture != "arm" || p.Variant != "v7" {
+		t.Errorf("Platform = %+v, want linux/arm/v7 as the old image", opts.Platform)
+	}
+
+	// An image that does not say what it is for leaves the choice to Docker.
+	opts, _, _ = buildCreate(old, imageWith(oldImageID, ocispec.ImageConfig{}, nil), imageWith(newImageID, ocispec.ImageConfig{}, nil))
+	if opts.Platform != nil {
+		t.Errorf("Platform = %+v, want none when the old image has no platform recorded", opts.Platform)
+	}
+}
+
+// The wait for "healthy" must be at least as long as the container's own
+// health schedule needs to reach a verdict, or a failing check would be
+// mistaken for a slow start.
+func TestHealthBudget(t *testing.T) {
+	floor := 2 * time.Minute
+	cases := []struct {
+		name string
+		hc   *dockerspec.HealthcheckConfig
+		want time.Duration
+	}{
+		{"no health check", nil, floor},
+		{"Docker's defaults: 3 tries of 30s+30s", &dockerspec.HealthcheckConfig{Test: []string{"CMD", "true"}}, 185 * time.Second},
+		{"a quick check stays at the floor", &dockerspec.HealthcheckConfig{Interval: 2 * time.Second, Timeout: time.Second, Retries: 3}, floor},
+		{"a long start period is added", &dockerspec.HealthcheckConfig{StartPeriod: 5 * time.Minute, Interval: 10 * time.Second, Timeout: 5 * time.Second, Retries: 2}, 5*time.Minute + 35*time.Second},
+		{"never beyond the cap", &dockerspec.HealthcheckConfig{StartPeriod: time.Hour}, maxHealthWait},
+	}
+	for _, c := range cases {
+		if got := healthBudget(c.hc, floor); got != c.want {
+			t.Errorf("%s: healthBudget = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+// Replacing the panel's own container would stop the panel halfway through:
+// nothing would be left to create the replacement.
+func TestReplaceRefusesThePanelItself(t *testing.T) {
+	r := newRig(t, nil)
+	r.env.SelfContainerID = r.id[:12] // as a container knows itself: by its short ID
+	_, err := r.replace()
+	if err == nil || !strings.Contains(err.Error(), "the panel's own container") {
+		t.Errorf("err = %v, want a refusal explaining it is the panel itself", err)
+	}
+	if calls := r.f.CallLog(); len(calls) != 0 {
+		t.Errorf("calls = %q, want none", calls)
+	}
+	// Another container is not affected by the setting.
+	r2 := newRig(t, nil)
+	r2.env.SelfContainerID = strings.Repeat("9", 12)
+	if replaced, err := r2.replace(); err != nil || !replaced {
+		t.Errorf("another container: Replace = %v, %v", replaced, err)
 	}
 }

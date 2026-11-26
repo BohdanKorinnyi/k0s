@@ -22,6 +22,7 @@ import (
 
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/mount"
 	"github.com/moby/moby/client"
 
 	"dockpanel/internal/actions"
@@ -249,7 +250,10 @@ func TestRealReplace(t *testing.T) {
 			Volumes: map[string]struct{}{"/anon": {}},
 		},
 		&container.HostConfig{
-			Binds:         []string{volume + ":/named"},
+			Binds: []string{volume + ":/named"},
+			// An anonymous volume declared through the mount API with no
+			// source: the way Docker Compose declares them.
+			Mounts:        []mount.Mount{{Type: mount.TypeVolume, Target: "/anon-mount"}},
 			RestartPolicy: container.RestartPolicy{Name: "unless-stopped"},
 		})
 	before := inspect(t, cli, name)
@@ -257,6 +261,15 @@ func TestRealReplace(t *testing.T) {
 	if !ok || anonBefore == "" {
 		t.Fatalf("the test container has no anonymous volume at /anon: %+v", before.Mounts)
 	}
+	anonMountBefore, ok := mountAt(before, "/anon-mount")
+	if !ok || anonMountBefore == "" {
+		t.Fatalf("the test container has no anonymous volume at /anon-mount: %+v", before.Mounts)
+	}
+	// Put something in each volume: afterwards it must still be there.
+	for _, dir := range []string{"/named", "/anon", "/anon-mount"} {
+		execIn(t, cli, oldID, "sh", "-c", "echo kept > "+dir+"/marker")
+	}
+	archBefore := imageArch(t, cli, before.Image)
 
 	// A newer image arrives for the same tag.
 	newImage := commitImage(t, cli, ref, "ENV FLAVOUR=new", `CMD ["sleep","3600"]`, "LABEL built=new", "STOPSIGNAL SIGKILL")
@@ -304,6 +317,18 @@ func TestRealReplace(t *testing.T) {
 	}
 	if got, _ := mountAt(after, "/anon"); got != anonBefore {
 		t.Errorf("anonymous volume = %q, want the same one %q", got, anonBefore)
+	}
+	if got, _ := mountAt(after, "/anon-mount"); got != anonMountBefore {
+		t.Errorf("anonymous volume declared as a mount = %q, want the same one %q", got, anonMountBefore)
+	}
+	for _, dir := range []string{"/named", "/anon", "/anon-mount"} {
+		if got := execIn(t, cli, after.ID, "cat", dir+"/marker"); !strings.Contains(got, "kept") {
+			t.Errorf("%s/marker reads %q after the replacement: the data did not come along", dir, got)
+		}
+	}
+	// And it is still built for the same platform.
+	if got := imageArch(t, cli, after.Image); got != archBefore {
+		t.Errorf("architecture went from %s to %s", archBefore, got)
 	}
 	// Nothing is left parked.
 	if _, err := cli.ContainerInspect(ctx, name+"-old-"+oldID[:8], client.ContainerInspectOptions{}); !cerrdefs.IsNotFound(err) {
@@ -487,4 +512,37 @@ func TestRealUpdateCheck(t *testing.T) {
 	if r := checker.Check(ctx, cli, "local", []string{ref}, true)[ref]; r.Status != updates.Unknown || r.Reason != updates.ReasonBuiltLocally {
 		t.Errorf("local-only image: %+v, want unknown / built locally", r)
 	}
+}
+
+// execIn runs a command in a container and returns what it printed.
+func execIn(t *testing.T, cli *client.Client, containerID string, cmd ...string) string {
+	t.Helper()
+	created, err := cli.ExecCreate(ctx, containerID, client.ExecCreateOptions{Cmd: cmd, AttachStdout: true, AttachStderr: true, TTY: true})
+	if err != nil {
+		t.Fatalf("exec %v: %v", cmd, err)
+	}
+	attached, err := cli.ExecAttach(ctx, created.ID, client.ExecAttachOptions{TTY: true})
+	if err != nil {
+		t.Fatalf("exec %v: %v", cmd, err)
+	}
+	defer attached.Close()
+	var out strings.Builder
+	buf := make([]byte, 4096)
+	for {
+		n, err := attached.Reader.Read(buf)
+		out.Write(buf[:n])
+		if err != nil {
+			break
+		}
+	}
+	return out.String()
+}
+
+func imageArch(t *testing.T, cli *client.Client, imageID string) string {
+	t.Helper()
+	img, err := cli.ImageInspect(ctx, imageID)
+	if err != nil {
+		t.Fatalf("inspect image %s: %v", imageID, err)
+	}
+	return img.Os + "/" + img.Architecture
 }

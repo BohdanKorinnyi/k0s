@@ -273,3 +273,66 @@ func TestPullRestartRejectsSingleContainerTarget(t *testing.T) {
 		t.Errorf("calls = %q, want none", r.f.CallLog())
 	}
 }
+
+// If a replacement's health cannot be confirmed in time, it is left running —
+// but the rest of the service is not replaced on trust. A bad image must not
+// be able to take every container of a service.
+func TestPullRestartStopsWhenHealthIsNotConfirmed(t *testing.T) {
+	r := newPullRig(t, true)
+	r.f.OnInspect = func(c *container.InspectResponse) {
+		if c.Image == newImageID && c.State.Running {
+			c.State.Health = &container.Health{Status: container.Starting}
+		}
+	}
+	_, err := r.run(t)
+	if err == nil || !strings.Contains(err.Error(), "shop-api-1") || !strings.Contains(err.Error(), "shop-api-2") {
+		t.Fatalf("err = %v, want it to say shop-api-1 is unconfirmed and shop-api-2 was left alone", err)
+	}
+	if c, _ := r.f.Container("shop-api-1"); c.Image != newImageID {
+		t.Error("shop-api-1 was rolled back; a slow start should be kept")
+	}
+	if c, _ := r.f.Container("shop-api-2"); c.ID != r.ids[1] || c.Image != oldImageID {
+		t.Error("shop-api-2 was replaced although the first replacement was never confirmed healthy")
+	}
+}
+
+func TestPullRestartLastContainerStillStartingIsOnlyAWarning(t *testing.T) {
+	f := dockertest.New()
+	f.AddImage("app:develop", imageWith(oldImageID, ocispec.ImageConfig{}, nil))
+	f.SetPullResult("app:develop", imageWith(newImageID, ocispec.ImageConfig{}, nil))
+	c := dockertest.Running("solo", "app:develop")
+	c.Image = oldImageID
+	f.AddContainer(c)
+	f.OnInspect = func(c *container.InspectResponse) {
+		if c.Image == newImageID && c.State.Running {
+			c.State.Health = &container.Health{Status: container.Starting}
+		}
+	}
+	svc, _ := services.Get(ctx, f, "s~solo")
+	a, _ := Default().Get("pull-restart")
+	rec := &recorder{}
+	env := Env{Docker: f, StartGrace: 5 * time.Millisecond, Poll: time.Millisecond, HealthTimeout: 40 * time.Millisecond}
+	if err := a.Run(ctx, env, Target{Service: svc}, rec.report); err != nil {
+		t.Fatalf("Run = %v; with nothing left to replace, an unconfirmed start is a warning, not a failure", err)
+	}
+	if !slices.ContainsFunc(rec.events, func(e Event) bool { return e.Level == LevelWarning }) {
+		t.Errorf("events = %q, want a warning", rec.steps())
+	}
+}
+
+// The pull asks for the platform the containers already run, so an amd64
+// container on an arm64 host is not handed the native image.
+func TestPullRestartKeepsThePlatform(t *testing.T) {
+	r := newPullRig(t, true)
+	old := imageWith(oldImageID, ocispec.ImageConfig{}, nil)
+	old.Os, old.Architecture = "linux", "amd64"
+	r.f.AddImage(oldImageID, old)
+
+	if _, err := r.run(t); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	got := r.f.LastPull("app:develop").Platforms
+	if len(got) != 1 || got[0].OS != "linux" || got[0].Architecture != "amd64" {
+		t.Errorf("pull platforms = %+v, want linux/amd64", got)
+	}
+}

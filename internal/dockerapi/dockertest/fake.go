@@ -66,6 +66,7 @@ type Fake struct {
 	execs      map[string]string // exec ID → container ID
 	lastExec   client.ExecCreateOptions
 	lastLogs   client.ContainerLogsOptions
+	pullOpts   map[string]client.ImagePullOptions
 	serial     int
 }
 
@@ -84,6 +85,7 @@ func New() *Fake {
 		fails:     map[string]error{},
 		auth:      map[string]string{},
 		execs:     map[string]string{},
+		pullOpts:  map[string]client.ImagePullOptions{},
 	}
 }
 
@@ -251,6 +253,13 @@ func (f *Fake) LastExec() client.ExecCreateOptions {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.lastExec
+}
+
+// LastPull returns the options of the most recent pull of ref.
+func (f *Fake) LastPull(ref string) client.ImagePullOptions {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.pullOpts[ref]
 }
 
 // LastLogs returns the options of the most recent ContainerLogs.
@@ -466,6 +475,7 @@ func (f *Fake) ImagePull(_ context.Context, ref string, options client.ImagePull
 	f.counts["ImagePull"]++
 	f.calls = append(f.calls, "ImagePull "+ref)
 	f.auth[ref] = options.RegistryAuth
+	f.pullOpts[ref] = options
 	if err := f.fails["ImagePull"]; err != nil {
 		return nil, err
 	}
