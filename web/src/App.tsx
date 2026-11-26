@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import { Navigate, Route, Routes } from 'react-router'
 import { SessionContext } from './components/Layout'
+import { ActionsProvider } from './hooks/useActions'
 import { HostsProvider } from './hooks/useHosts'
 import { useSession } from './hooks/useSession'
 import { HomePage, NotFoundPage } from './pages/HomePage'
@@ -36,6 +37,7 @@ export function App() {
   return (
     <SessionContext.Provider value={sessionContext}>
       <HostsProvider>
+        <ActionsProvider>
         <Routes>
           <Route path="/" element={<HomePage />} />
           <Route path="/h/:hostId" element={<ServicesPage />} />
@@ -45,6 +47,7 @@ export function App() {
           <Route path="/settings/registries" element={<RegistriesSettings />} />
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
+        </ActionsProvider>
       </HostsProvider>
     </SessionContext.Provider>
   )
