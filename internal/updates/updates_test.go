@@ -111,8 +111,8 @@ func TestCheckStatuses(t *testing.T) {
 			localImage(f, ref, "sha256:img1", repo, digestA)
 			f.SetRemoteError(ref, err)
 			r := check(NewChecker(nil, newClock().now), f, ref)
-			if r.Status != Unknown || r.Reason != "needs a registry login" {
-				t.Errorf("%v: result = %+v, want unknown / needs a registry login", err, r)
+			if r.Status != Unknown || r.Reason != ReasonNeedsLogin {
+				t.Errorf("%v: result = %+v, want unknown / %q", err, r, ReasonNeedsLogin)
 			}
 		}
 	})
@@ -145,6 +145,72 @@ func TestCheckStatuses(t *testing.T) {
 		}
 		if n := f.Count("ImageInspect") + f.Count("DistributionInspect"); n != 0 {
 			t.Errorf("made %d Docker calls for pinned references, want none", n)
+		}
+	})
+}
+
+// Docker's newer image store gives every image a digest, including ones that
+// were only ever built on the host, so "has a digest" no longer means "came
+// from a registry". Where Docker says how an image came to be, that decides.
+func TestCheckUsesWhereTheImageCameFrom(t *testing.T) {
+	const ref = "ghcr.io/acme/api:develop"
+	withDigest := func(identity *image.Identity) image.InspectResponse {
+		return image.InspectResponse{ID: "sha256:img1", RepoDigests: []string{"ghcr.io/acme/api@" + digestA}, Identity: identity}
+	}
+
+	t.Run("built on the host", func(t *testing.T) {
+		f := dockertest.New()
+		f.AddImage(ref, withDigest(&image.Identity{Build: []image.BuildIdentity{{Ref: "abc"}}}))
+		r := check(NewChecker(nil, newClock().now), f, ref)
+		if r.Status != Unknown || r.Reason != ReasonBuiltLocally {
+			t.Errorf("result = %+v, want unknown / %q", r, ReasonBuiltLocally)
+		}
+		if f.Count("DistributionInspect") != 0 {
+			t.Error("asked the registry about an image that was built on the host")
+		}
+	})
+
+	t.Run("pulled from this repository", func(t *testing.T) {
+		f := dockertest.New()
+		f.AddImage(ref, withDigest(&image.Identity{Pull: []image.PullIdentity{{Repository: "ghcr.io/acme/api"}}}))
+		f.SetRemoteDigest(ref, digestB)
+		if r := check(NewChecker(nil, newClock().now), f, ref); r.Status != Available {
+			t.Errorf("result = %+v, want update_available", r)
+		}
+	})
+
+	t.Run("docker hub's long and short names are the same repository", func(t *testing.T) {
+		f := dockertest.New()
+		f.AddImage("nginx:1.27", image.InspectResponse{ID: "sha256:img1", RepoDigests: []string{"nginx@" + digestA},
+			Identity: &image.Identity{Pull: []image.PullIdentity{{Repository: "docker.io/library/nginx"}}}})
+		f.SetRemoteDigest("nginx:1.27", digestA)
+		if r := check(NewChecker(nil, newClock().now), f, "nginx:1.27"); r.Status != UpToDate {
+			t.Errorf("result = %+v, want up_to_date", r)
+		}
+	})
+
+	t.Run("pulled under another name and retagged", func(t *testing.T) {
+		f := dockertest.New()
+		f.AddImage(ref, withDigest(&image.Identity{Pull: []image.PullIdentity{{Repository: "docker.io/library/alpine"}}}))
+		r := check(NewChecker(nil, newClock().now), f, ref)
+		if r.Status != Unknown || r.Reason != ReasonBuiltLocally || f.Count("DistributionInspect") != 0 {
+			t.Errorf("result = %+v (registry calls %d), want unknown / tagged locally, no registry call", r, f.Count("DistributionInspect"))
+		}
+	})
+
+	// No word on the origin (the classic store, or an image committed from a
+	// container): ask the registry, and if it refuses, say both things that
+	// can mean.
+	t.Run("origin unknown and the registry refuses", func(t *testing.T) {
+		f := dockertest.New()
+		f.AddImage(ref, withDigest(nil))
+		f.SetRemoteError(ref, errors.New("pull access denied for acme/api, repository does not exist or may require 'docker login': denied: requested access to the resource is denied"))
+		r := check(NewChecker(nil, newClock().now), f, ref)
+		if r.Status != Unknown || r.Reason != ReasonNeedsLogin {
+			t.Errorf("result = %+v, want unknown / %q", r, ReasonNeedsLogin)
+		}
+		if !strings.Contains(r.Reason, "login") || !strings.Contains(r.Reason, "only on this host") {
+			t.Errorf("reason %q should name both possibilities: a login is needed, or the image exists only on this host", r.Reason)
 		}
 	})
 }

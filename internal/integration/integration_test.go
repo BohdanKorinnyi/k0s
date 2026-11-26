@@ -509,8 +509,13 @@ func TestRealUpdateCheck(t *testing.T) {
 	// An image that only exists here is reported as such, without a registry call failing.
 	ref := unique("img") + ":latest"
 	commitImage(t, cli, ref, `CMD ["true"]`)
-	if r := checker.Check(ctx, cli, "local", []string{ref}, true)[ref]; r.Status != updates.Unknown || r.Reason != updates.ReasonBuiltLocally {
-		t.Errorf("local-only image: %+v, want unknown / built locally", r)
+	// The classic image store knows the image never came from a registry. The
+	// newer one gives it a digest like any other and says nothing about its
+	// origin, so the registry is asked and refuses. Either way the answer is
+	// "cannot tell", with a reason — never "up to date" or "update available".
+	r = checker.Check(ctx, cli, "local", []string{ref}, true)[ref]
+	if r.Status != updates.Unknown || (r.Reason != updates.ReasonBuiltLocally && r.Reason != updates.ReasonNeedsLogin) {
+		t.Errorf("local-only image: %+v, want unknown with a reason saying it is local or needs a login", r)
 	}
 }
 

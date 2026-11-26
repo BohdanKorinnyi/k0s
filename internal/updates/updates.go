@@ -14,6 +14,7 @@ import (
 
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/distribution/reference"
+	"github.com/moby/moby/api/types/image"
 	"github.com/moby/moby/client"
 
 	"dockpanel/internal/dockerapi"
@@ -38,8 +39,10 @@ const (
 	// The host has no registry digest for the image: it was built here, or
 	// loaded from a file, so there is nothing to compare with.
 	ReasonBuiltLocally = "built or loaded locally"
-	ReasonNeedsLogin   = "needs a registry login"
-	ReasonNotOnHost    = "the image tag is no longer on this host"
+	// The registry refused. It answers the same way for an image it does not
+	// have as for one it will not show without a login, so both are named.
+	ReasonNeedsLogin = "needs a registry login, or the image exists only on this host"
+	ReasonNotOnHost  = "the image tag is no longer on this host"
 )
 
 // MaxAge is how long a result is trusted before the registry is asked again.
@@ -158,7 +161,7 @@ func (c *Checker) checkOne(ctx context.Context, cli dockerapi.Client, ref string
 	r.LocalImageID = img.ID
 
 	local := localDigests(ref, img.RepoDigests)
-	if len(local) == 0 {
+	if len(local) == 0 || !cameFromRegistry(ref, img.Identity) {
 		return unknown(ReasonBuiltLocally)
 	}
 
@@ -271,6 +274,30 @@ func ForService(results map[string]Result, containers []ContainerImage) (Status,
 		return UpToDate, ""
 	}
 	return Pinned, ""
+}
+
+// cameFromRegistry reports whether the image may have been pulled from the
+// repository its reference names.
+//
+// Docker's newer image store gives every image a digest, including ones built
+// or committed on the host, so a digest alone proves nothing. Where the daemon
+// records how an image came to be, that settles it: pulled from this
+// repository, or not. Where it records nothing (the classic store; an image
+// committed from a container), the registry is asked.
+func cameFromRegistry(ref string, origin *image.Identity) bool {
+	if origin == nil {
+		return true
+	}
+	named, err := reference.ParseNormalizedNamed(ref)
+	if err != nil {
+		return false
+	}
+	for _, pull := range origin.Pull {
+		if from, err := reference.ParseNormalizedNamed(pull.Repository); err == nil && from.Name() == named.Name() {
+			return true
+		}
+	}
+	return false
 }
 
 // localDigests returns the digests the host recorded for ref's repository.
