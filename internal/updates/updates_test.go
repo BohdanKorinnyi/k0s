@@ -93,8 +93,8 @@ func TestCheckStatuses(t *testing.T) {
 		f := dockertest.New()
 		localImage(f, "myapp:dev", "sha256:img1", "", "")
 		r := check(NewChecker(nil, newClock().now), f, "myapp:dev")
-		if r.Status != Unknown || r.Reason != "built locally" {
-			t.Errorf("result = %+v, want unknown / built locally", r)
+		if r.Status != Unknown || r.Reason != ReasonBuiltLocally || !strings.Contains(r.Reason, "locally") {
+			t.Errorf("result = %+v, want unknown / %q", r, ReasonBuiltLocally)
 		}
 		if f.Count("DistributionInspect") != 0 {
 			t.Error("asked the registry about an image that was never pulled")

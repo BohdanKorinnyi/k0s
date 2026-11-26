@@ -200,6 +200,23 @@ func TestState(t *testing.T) {
 	}
 }
 
+// Docker keeps the last health result on a container after it stops. A service
+// that is down is "stopped", whatever its last health check said.
+func TestStoppedContainerIsNotUnhealthy(t *testing.T) {
+	f := dockertest.New()
+	c := dockertest.Stopped("db", "postgres:16", 1)
+	c.State.Health = &container.Health{Status: container.Unhealthy}
+	f.AddContainer(c)
+
+	s := only(t, f)
+	if s.State != "stopped" || s.ExitCode != 1 {
+		t.Errorf("state = %q (exit %d), want stopped with exit code 1", s.State, s.ExitCode)
+	}
+	if got := s.Containers[0].Health; got != "" {
+		t.Errorf("container health = %q, want none for a container that is not running", got)
+	}
+}
+
 func TestMixedImages(t *testing.T) {
 	f := dockertest.New()
 	f.AddContainer(composeContainer("p", "s", 1, "app:2"))

@@ -36,10 +36,27 @@ func Dial(h store.Host, o Options) (*client.Client, error) {
 		MaxIdleConns:        16,
 		MaxIdleConnsPerHost: 16,
 		IdleConnTimeout:     90 * time.Second,
+		// An empty, non-nil map turns HTTP/2 off. This is not about HTTP/2:
+		// left alone, net/http prepares for it by giving the transport a TLS
+		// configuration, and the Docker client reads "has a TLS configuration"
+		// as "this host speaks HTTPS" — and stops using our dialer for shells.
+		// Docker's API is HTTP/1.1, so nothing is lost.
+		TLSNextProto: map[string]func(string, *tls.Conn) http.RoundTripper{},
+	}
+	scheme := "http"
+	if u.Scheme == "tcp" && h.TLS != nil {
+		cfg, err := tlsConfig(*h.TLS)
+		if err != nil {
+			return nil, err
+		}
+		transport.TLSClientConfig = cfg
+		scheme = "https"
 	}
 	opts := []client.Opt{
 		client.WithHTTPClient(&http.Client{Transport: transport}),
 		client.WithUserAgent(appinfo.Name + "/" + appinfo.Version),
+		// Stated outright rather than left for the client to infer.
+		client.WithScheme(scheme),
 	}
 
 	switch u.Scheme {
@@ -47,14 +64,6 @@ func Dial(h store.Host, o Options) (*client.Client, error) {
 		opts = append(opts, client.WithHost("unix://"+u.Path))
 
 	case "tcp":
-		if h.TLS != nil {
-			cfg, err := tlsConfig(*h.TLS)
-			if err != nil {
-				return nil, err
-			}
-			// The client switches to https when the transport has a TLS config.
-			transport.TLSClientConfig = cfg
-		}
 		opts = append(opts, client.WithHost("tcp://"+tcpAddr(u, h.TLS != nil)))
 
 	case "ssh":

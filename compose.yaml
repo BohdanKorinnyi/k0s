@@ -1,0 +1,25 @@
+# Run the panel on this machine:  docker compose up -d
+# Then open http://localhost:8080
+
+services:
+  dockpanel:
+    image: dockpanel:dev
+    build: .
+    restart: unless-stopped
+    ports:
+      # Reachable from this machine only. The panel can open shells in your
+      # containers and show their secrets; do not publish it more widely
+      # without setting DOCKPANEL_PASSWORD.
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - dockpanel-data:/data
+      # The local Docker daemon, offered as host "local" on first run.
+      - /var/run/docker.sock:/var/run/docker.sock
+      # For ssh:// hosts: your SSH keys and config, read-only.
+      # - ~/.ssh:/root/.ssh:ro
+    # environment:
+    #   DOCKPANEL_PASSWORD: change-me
+    #   DOCKPANEL_ALLOWED_HOSTS: panel.lan
+
+volumes:
+  dockpanel-data:

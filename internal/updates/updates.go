@@ -35,7 +35,9 @@ const (
 
 // Reasons for an Unknown result.
 const (
-	ReasonBuiltLocally = "built locally"
+	// The host has no registry digest for the image: it was built here, or
+	// loaded from a file, so there is nothing to compare with.
+	ReasonBuiltLocally = "built or loaded locally"
 	ReasonNeedsLogin   = "needs a registry login"
 	ReasonNotOnHost    = "the image tag is no longer on this host"
 )

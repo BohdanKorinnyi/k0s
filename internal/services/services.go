@@ -245,7 +245,9 @@ func toContainer(in container.InspectResponse) Container {
 		c.ExitCode = st.ExitCode
 		c.StartedAt = parseTime(st.StartedAt)
 		c.FinishedAt = parseTime(st.FinishedAt)
-		if st.Health != nil && st.Health.Status != container.NoHealthcheck {
+		// Docker keeps the last health result after a container stops; it
+		// says nothing about a container that is not running.
+		if st.Running && st.Health != nil && st.Health.Status != container.NoHealthcheck {
 			c.Health = string(st.Health.Status)
 		}
 	}
