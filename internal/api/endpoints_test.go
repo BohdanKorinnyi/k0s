@@ -146,6 +146,48 @@ func TestHostSecretsNeverLeave(t *testing.T) {
 	}
 }
 
+// The edit form never receives the saved certificates, so it cannot send them
+// back. Each TLS field left blank keeps what is stored; only an explicit
+// "no TLS" removes them.
+func TestEditingATLSHostKeepsBlankFields(t *testing.T) {
+	r := newRig(t, nil)
+	cert, key := selfSigned(t)
+	h, err := r.store.SaveHost(store.Host{Name: "tls", URL: "tcp://10.0.0.5:2376", TLS: &store.TLS{CA: cert, Cert: cert, Key: key}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rec := r.do("PUT", "/api/hosts/"+h.ID, map[string]any{
+		"name": "tls renamed", "url": "tcp://10.0.0.5:2376",
+		"tls": map[string]string{"ca": "", "cert": "", "key": ""},
+	})
+	if rec.Code != 200 {
+		t.Fatalf("update: %d %s", rec.Code, rec.Body.String())
+	}
+	stored, _ := r.store.Host(h.ID)
+	if stored.Name != "tls renamed" || stored.TLS == nil || stored.TLS.CA != cert || stored.TLS.Cert != cert || stored.TLS.Key != key {
+		t.Errorf("stored TLS after an edit with blank fields = %+v, want all three kept", stored.TLS)
+	}
+
+	// Replacing only the CA keeps the client certificate and key.
+	other, _ := selfSigned(t)
+	r.do("PUT", "/api/hosts/"+h.ID, map[string]any{
+		"name": "tls renamed", "url": "tcp://10.0.0.5:2376",
+		"tls": map[string]string{"ca": other, "cert": "", "key": ""},
+	})
+	stored, _ = r.store.Host(h.ID)
+	// (What the form sends is stored without its surrounding whitespace.)
+	if stored.TLS == nil || stored.TLS.CA != strings.TrimSpace(other) || stored.TLS.Cert != cert || stored.TLS.Key != key {
+		t.Errorf("after replacing the CA: the CA was not replaced, or the certificate and key were not kept")
+	}
+
+	// Turning TLS off removes it.
+	rec = r.do("PUT", "/api/hosts/"+h.ID, map[string]any{"name": "tls renamed", "url": "tcp://10.0.0.5:2375", "tls": nil})
+	if got := decode[hostBody](t, rec); got.HasTLS {
+		t.Errorf("after tls: null the host still has TLS: %+v", got)
+	}
+}
+
 type testBody struct {
 	OK      bool   `json:"ok"`
 	Version string `json:"version"`

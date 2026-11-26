@@ -21,7 +21,11 @@ export function LogsPanel({ host, service, container }: PanelProps) {
   const [fullscreen, setFullscreen] = useState(false)
 
   const base = container ? paths.container(host.id, container.id) : paths.service(host.id, service.key)
-  const stream = useLogStream(`${base}/logs/ws?tail=${tail}`)
+  // When a followed container starts again its start time changes, and the
+  // stream — which ended when it stopped — is opened afresh.
+  const followed = container ? [container] : service.containers
+  const epoch = followed.map((c) => `${c.id}@${c.startedAt ?? ''}`).join(',')
+  const stream = useLogStream(`${base}/logs/ws?tail=${tail}`, epoch)
 
   // Searching narrows the view to the lines that match; it never asks the
   // server, only looks through what is loaded.

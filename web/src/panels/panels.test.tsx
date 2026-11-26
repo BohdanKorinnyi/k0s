@@ -251,6 +251,38 @@ describe('LogsPanel', () => {
     expect(FakeWebSocket.last()).not.toBe(ws)
   })
 
+  // Restarting a container ends its log stream. Once the page learns the
+  // container started again, the log picks up without a click.
+  test('reconnects by itself when the container has been restarted', async () => {
+    const { rerender } = render(<LogsPanel host={host()} service={svc} container={first} />)
+    const before = FakeWebSocket.last()
+    act(() => before.accept())
+    act(() => before.hangUp(1000, 'end of log'))
+    expect(FakeWebSocket.instances).toHaveLength(1)
+
+    const restarted = { ...first, startedAt: '2026-11-26T12:30:00Z' }
+    rerender(<LogsPanel host={host()} service={{ ...svc, containers: [restarted, svc.containers[1]!] }} container={restarted} />)
+    expect(FakeWebSocket.instances).toHaveLength(2)
+    expect(FakeWebSocket.last().url).toBe(before.url)
+  })
+
+  test('an unchanged container does not cause a reconnect on every refresh', async () => {
+    const { rerender } = render(<LogsPanel host={host()} service={svc} container={first} />)
+    act(() => FakeWebSocket.last().accept())
+    // The page refreshes its data every few seconds: same container, new objects.
+    rerender(<LogsPanel host={host()} service={{ ...svc }} container={{ ...first }} />)
+    rerender(<LogsPanel host={host()} service={{ ...svc }} container={{ ...first }} />)
+    expect(FakeWebSocket.instances).toHaveLength(1)
+  })
+
+  test('"All together" reconnects when any of the containers has been restarted', async () => {
+    const { rerender } = render(<LogsPanel host={host()} service={svc} container={null} />)
+    act(() => FakeWebSocket.last().accept())
+    const second = { ...svc.containers[1]!, startedAt: '2026-11-26T12:30:00Z' }
+    rerender(<LogsPanel host={host()} service={{ ...svc, containers: [first, second] }} container={null} />)
+    expect(FakeWebSocket.instances).toHaveLength(2)
+  })
+
   test('full screen can be switched on and off', async () => {
     const { user } = await setup()
     const panel = document.querySelector('.panel') as HTMLElement

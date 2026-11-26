@@ -28,10 +28,12 @@ type hostInput struct {
 	TLS       *tlsInput `json:"tls"`
 }
 
-// hostFromInput turns what the form sent into a host, filling in the stored
-// TLS key when the form left it blank: the browser never has the key, so a
-// blank means "unchanged". It also checks that a client can be built from the
-// result, which catches a bad URL or certificate before anything is saved.
+// hostFromInput turns what the form sent into a host. The browser is never
+// given the saved certificates or key, so it cannot send them back: each TLS
+// field left blank means "unchanged" and is filled in from what is stored.
+// Sending no TLS section at all removes TLS. The result is checked by building
+// a client from it, which catches a bad URL or certificate before anything is
+// saved.
 func (s *server) hostFromInput(in hostInput, existingID string) (store.Host, error) {
 	h := store.Host{
 		ID:        existingID,
@@ -46,9 +48,17 @@ func (s *server) hostFromInput(in hostInput, existingID string) (store.Host, err
 	// TLS belongs to tcp:// only; switching a host to another scheme drops it.
 	if u, err := url.Parse(h.URL); err == nil && u.Scheme == "tcp" && in.TLS != nil {
 		t := store.TLS{CA: strings.TrimSpace(in.TLS.CA), Cert: strings.TrimSpace(in.TLS.Cert), Key: strings.TrimSpace(in.TLS.Key)}
-		if t.Key == "" && existingID != "" {
+		if existingID != "" {
 			if existing, ok := s.deps.Store.Host(existingID); ok && existing.TLS != nil {
-				t.Key = existing.TLS.Key
+				if t.CA == "" {
+					t.CA = existing.TLS.CA
+				}
+				if t.Cert == "" {
+					t.Cert = existing.TLS.Cert
+				}
+				if t.Key == "" {
+					t.Key = existing.TLS.Key
+				}
 			}
 		}
 		if t.CA != "" || t.Cert != "" || t.Key != "" {
