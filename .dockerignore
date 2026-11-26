@@ -1,0 +1,8 @@
+.git
+.superpowers
+docs
+data
+bin
+web/node_modules
+web/dist
+**/.DS_Store

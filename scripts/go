@@ -1,0 +1,32 @@
+#!/bin/sh
+# Runs the Go toolchain for this repository.
+#
+# Uses the local `go` when one is installed; otherwise runs the same command in
+# a container, so Docker is the only thing a contributor needs.
+#
+#   DOCKPANEL_GO_IN_DOCKER=1    force the container even when Go is installed
+#   DOCKPANEL_GO_IMAGE=...      toolchain image (default golang:1.27)
+#   DOCKPANEL_DOCKER_SOCK=...   mount this Docker socket (integration tests)
+set -eu
+
+root=$(cd "$(dirname "$0")/.." && pwd)
+
+if [ -z "${DOCKPANEL_GO_IN_DOCKER:-}" ] && command -v go >/dev/null 2>&1; then
+  cd "$root"
+  exec go "$@"
+fi
+
+# The Debian image, not Alpine: `go test -race` needs cgo and glibc.
+image=${DOCKPANEL_GO_IMAGE:-golang:1.27}
+
+set -- "$image" go "$@"
+if [ -n "${DOCKPANEL_DOCKER_SOCK:-}" ]; then
+  set -- -v "${DOCKPANEL_DOCKER_SOCK}:/var/run/docker.sock" "$@"
+fi
+
+exec docker run --rm \
+  -v "$root":/src -w /src \
+  -v dockpanel-gomod:/go/pkg/mod \
+  -v dockpanel-gobuild:/root/.cache/go-build \
+  -e GOFLAGS=-buildvcs=false \
+  "$@"
