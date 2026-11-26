@@ -54,6 +54,9 @@ type server struct {
 
 	// spawn runs background work. Tests replace it to run the work inline.
 	spawn func(func())
+	// tuneEnv, when set, adjusts what actions are given. Tests use it to
+	// shorten waits.
+	tuneEnv func(*actions.Env)
 }
 
 // New returns the server's handler.

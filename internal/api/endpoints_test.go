@@ -578,6 +578,60 @@ func TestActionSurvivesDisconnect(t *testing.T) {
 	t.Error("the service stayed busy after the detached action finished")
 }
 
+// After a pull-and-restart the containers run a new image. What was remembered
+// about "is there an update" described the old one, and must not linger: the
+// service would show an update badge the moment it had been updated.
+func TestUpdateStatusIsRefreshedAfterAnAction(t *testing.T) {
+	r := newRig(t, nil)
+	r.srv.spawn = func(f func()) { f() }
+	r.srv.tuneEnv = func(env *actions.Env) { env.StartGrace, env.Poll = 5*time.Millisecond, time.Millisecond }
+	h, f := r.addHost("aws", false)
+
+	const ref = "ghcr.io/acme/api:develop"
+	oldImage := image.InspectResponse{ID: "sha256:old", RepoDigests: []string{"ghcr.io/acme/api@" + digestA}}
+	newImage := image.InspectResponse{ID: "sha256:new", RepoDigests: []string{"ghcr.io/acme/api@" + digestB}}
+	c := dockertest.Running("api-1", ref)
+	c.Image = "sha256:old"
+	f.AddContainer(c)
+	f.AddImage(ref, oldImage)
+	f.SetRemoteDigest(ref, digestB) // the registry already has the new build
+	f.SetPullResult(ref, newImage)
+
+	status := func() string {
+		t.Helper()
+		body := decode[servicesBody](t, r.do("GET", "/api/hosts/"+h.ID+"/services", nil))
+		svc, ok := body.service("s~api-1")
+		if !ok {
+			t.Fatalf("service missing from %+v", body)
+		}
+		return svc.Update.Status
+	}
+
+	status() // the first load starts the check
+	if got := status(); got != "update_available" {
+		t.Fatalf("before the action: update = %q, want update_available", got)
+	}
+
+	rec := r.do("POST", actionPath(h.ID, "s~api-1", "pull-restart"), nil)
+	evs := events(t, rec)
+	if last := evs[len(evs)-1]; !last.Done || last.Level != "success" {
+		t.Fatalf("pull-restart did not succeed: %+v", evs)
+	}
+
+	// Straight away the stale answer must be gone; the fresh one follows as
+	// soon as the registry has been asked again.
+	if got := status(); got == "update_available" {
+		t.Errorf("right after the action the service still shows the old update status")
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for status() != "up_to_date" && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if got := status(); got != "up_to_date" {
+		t.Errorf("after the action: update = %q, want up_to_date", got)
+	}
+}
+
 func TestActionsList(t *testing.T) {
 	r := newRig(t, nil)
 	got := decode[[]actions.Info](t, r.do("GET", "/api/actions", nil))

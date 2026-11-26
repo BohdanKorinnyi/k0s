@@ -119,6 +119,9 @@ func (s *server) handleAction(w http.ResponseWriter, r *http.Request) {
 	}
 
 	env := actions.Env{Docker: cli, Auth: s.deps.Auth, HealthTimeout: s.deps.Config.HealthTimeout}
+	if s.tuneEnv != nil {
+		s.tuneEnv(&env)
+	}
 	// Detached from the request so that a closed tab does not cancel it.
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), actionTimeout)
 	started = true
@@ -133,7 +136,18 @@ func (s *server) handleAction(w http.ResponseWriter, r *http.Request) {
 			final = actions.Event{Step: err.Error(), Level: actions.LevelError, Done: true}
 		}
 		slog.Info("action", "host", h.ID, "service", svc.Key, "action", info.ID, "container", target.ContainerID, "error", err)
+
+		// An action may have changed which image the containers run (a pull,
+		// even a failed one, can move the tag). What was remembered about
+		// "is there an update" described the old state: drop it before the
+		// page reloads, then ask the registry again.
+		if s.deps.Updates != nil {
+			s.deps.Updates.Invalidate(h.ID, svc.Images)
+		}
 		send(final)
+		if s.deps.Updates != nil {
+			s.checkUpdates(h.ID, cli, svc.Images, true)
+		}
 	}()
 
 	enc := json.NewEncoder(w)

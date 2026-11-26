@@ -219,6 +219,17 @@ func (c *Checker) Done(hostID string) {
 	c.running[hostID] = false
 }
 
+// Invalidate drops what is remembered about some image references on a host.
+// Call it when the images behind them may have changed, as after a pull: an
+// answer about the old image must not be shown for the new one.
+func (c *Checker) Invalidate(hostID string, refs []string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, ref := range refs {
+		delete(c.results[hostID], ref)
+	}
+}
+
 // Forget drops everything remembered about a host, for when it is edited or
 // removed.
 func (c *Checker) Forget(hostID string) {

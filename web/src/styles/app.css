@@ -691,7 +691,7 @@ table.services {
   min-height: 0;
 }
 .container-list {
-  width: 230px;
+  width: 270px;
   flex: none;
   padding: 8px;
   overflow-y: auto;
@@ -724,18 +724,34 @@ table.services {
   background: var(--accent-soft);
   color: var(--accent);
 }
+/* Names wrap rather than being cut off: replicas differ only in their last
+   characters, which is exactly what an ellipsis would hide. */
 .container-item .label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
   flex: 1;
+}
+.container-item.mono {
+  font-size: 12px;
+  line-height: 1.35;
 }
 .container-row {
   display: flex;
   align-items: center;
+  gap: 2px;
 }
 .container-row .container-item {
   min-width: 0;
+}
+.container-row .btn.icon {
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+  flex: none;
+}
+.container-row .btn.icon:hover,
+.container-row .btn.icon.on {
+  background: var(--surface-2);
+  color: var(--text);
 }
 
 .panel-area {

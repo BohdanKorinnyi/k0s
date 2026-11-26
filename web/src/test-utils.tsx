@@ -92,3 +92,77 @@ export function mockFetch(routes: Record<string, Reply>): { calls: Recorded[]; m
   vi.stubGlobal('fetch', mock)
   return { calls, mock }
 }
+
+/**
+ * A stand-in for the browser's WebSocket. Tests reach the sockets the code
+ * opened through `FakeWebSocket.instances` and play the server's part.
+ */
+export class FakeWebSocket {
+  static instances: FakeWebSocket[] = []
+  static readonly CONNECTING = 0
+  static readonly OPEN = 1
+  static readonly CLOSING = 2
+  static readonly CLOSED = 3
+
+  /** Replaces the global WebSocket and forgets earlier sockets. */
+  static install(): void {
+    FakeWebSocket.instances = []
+    vi.stubGlobal('WebSocket', FakeWebSocket)
+  }
+
+  /** The most recently opened socket. */
+  static last(): FakeWebSocket {
+    const ws = FakeWebSocket.instances.at(-1)
+    if (!ws) throw new Error('no WebSocket was opened')
+    return ws
+  }
+
+  readonly url: string
+  binaryType = 'blob'
+  readyState = FakeWebSocket.CONNECTING
+  /** Everything the code under test sent. */
+  sent: unknown[] = []
+  closedByClient = false
+  onopen: ((event: Event) => void) | null = null
+  onmessage: ((event: MessageEvent) => void) | null = null
+  onclose: ((event: CloseEvent) => void) | null = null
+  onerror: ((event: Event) => void) | null = null
+
+  constructor(url: string | URL) {
+    this.url = String(url)
+    FakeWebSocket.instances.push(this)
+  }
+
+  send(data: unknown): void {
+    this.sent.push(data)
+  }
+
+  close(): void {
+    if (this.readyState === FakeWebSocket.CLOSED) return
+    this.closedByClient = true
+    this.readyState = FakeWebSocket.CLOSED
+  }
+
+  // ---- the server's side ----
+
+  accept(): void {
+    this.readyState = FakeWebSocket.OPEN
+    this.onopen?.(new Event('open'))
+  }
+
+  /** Delivers a frame: a string for text, an ArrayBuffer for binary. */
+  deliver(data: string | ArrayBuffer): void {
+    this.onmessage?.({ data } as MessageEvent)
+  }
+
+  /** Text frames sent by the code under test, parsed as JSON. */
+  sentControl(): unknown[] {
+    return this.sent.filter((d): d is string => typeof d === 'string').map((d) => JSON.parse(d) as unknown)
+  }
+
+  hangUp(code = 1000, reason = ''): void {
+    if (this.readyState === FakeWebSocket.CLOSED) return
+    this.readyState = FakeWebSocket.CLOSED
+    this.onclose?.({ code, reason, wasClean: code === 1000 } as CloseEvent)
+  }
+}

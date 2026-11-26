@@ -65,7 +65,15 @@ export function ActionButtons({ hostId, service, infos, onRun }: Props) {
   )
 }
 
-function MoreMenu({ actions, onRun }: { actions: ActionInfo[]; onRun: (actionId: string) => void }) {
+type MoreMenuProps = {
+  actions: ActionInfo[]
+  onRun: (actionId: string) => void
+  /** What the button is called, for screen readers and tooltips. */
+  label?: string
+}
+
+/** A "…" button that opens a small menu of actions. */
+export function MoreMenu({ actions, onRun, label = 'More actions' }: MoreMenuProps) {
   const [open, setOpen] = useState(false)
   // Where to draw the menu, in window coordinates. The table scrolls sideways
   // on narrow screens, and a scrolling box clips whatever hangs out of it, so
@@ -106,8 +114,8 @@ function MoreMenu({ actions, onRun }: { actions: ActionInfo[]; onRun: (actionId:
       <button
         type="button"
         className={open ? 'btn icon on' : 'btn icon'}
-        aria-label="More actions"
-        title="More actions"
+        aria-label={label}
+        title={label}
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={toggle}

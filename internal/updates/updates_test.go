@@ -199,6 +199,28 @@ func TestCheckCache(t *testing.T) {
 	}
 }
 
+func TestInvalidate(t *testing.T) {
+	const ref, other = "ghcr.io/acme/api:develop", "ghcr.io/acme/web:develop"
+	f := dockertest.New()
+	for _, r := range []string{ref, other} {
+		localImage(f, r, "sha256:img1", strings.TrimSuffix(r, ":develop"), digestA)
+		f.SetRemoteDigest(r, digestA)
+	}
+	c := NewChecker(nil, newClock().now)
+	c.Check(ctx, f, "aws", []string{ref, other}, false)
+
+	c.Invalidate("aws", []string{ref})
+	if _, ok := c.Cached("aws", ref); ok {
+		t.Error("the invalidated reference is still remembered")
+	}
+	if _, ok := c.Cached("aws", other); !ok {
+		t.Error("another reference was forgotten too")
+	}
+	// Nothing to do for a host or reference that was never checked.
+	c.Invalidate("gcp", []string{ref})
+	c.Invalidate("aws", []string{"never:seen"})
+}
+
 func TestCheckDeduplicatesReferences(t *testing.T) {
 	const ref = "ghcr.io/acme/api:develop"
 	f := dockertest.New()
