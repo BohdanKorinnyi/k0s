@@ -28,6 +28,9 @@ type LogLine struct {
 	// asked for timestamps; whether to show them is the browser's choice.
 	Time string `json:"t"`
 	Text string `json:"l"`
+	// Partial is set when the line was too long for one LogLine and continues
+	// in the next one.
+	Partial bool `json:"p,omitempty"`
 }
 
 // LogOptions select what to read.
@@ -125,7 +128,7 @@ func (w *lineSplitter) Write(p []byte) (int, error) {
 			w.buf = w.buf[maxStamp-len(rest):]
 			w.midLine = true
 		}
-		w.send(string(w.buf[:MaxLine]))
+		w.send(string(w.buf[:MaxLine]), true)
 		w.buf = w.buf[MaxLine:]
 	}
 	// Do not let the consumed prefix pin a large array.
@@ -139,18 +142,17 @@ func (w *lineSplitter) Write(p []byte) (int, error) {
 func (w *lineSplitter) line(raw []byte) {
 	text := strings.TrimSuffix(string(raw), "\r")
 	if w.midLine {
+		// The pieces sent so far were marked as continuing, so the line is
+		// always closed with a final piece, even an empty one.
 		w.midLine = false
-		if text == "" {
-			return // the long line ended exactly on a piece boundary
-		}
 	} else {
 		w.lineTime, text = splitTimestamp(text)
 	}
 	for len(text) > MaxLine {
-		w.send(text[:MaxLine])
+		w.send(text[:MaxLine], true)
 		text = text[MaxLine:]
 	}
-	w.send(text)
+	w.send(text, false)
 }
 
 // flush emits whatever is left when the stream ends without a final newline.
@@ -161,13 +163,14 @@ func (w *lineSplitter) flush() {
 	}
 }
 
-func (w *lineSplitter) send(text string) {
+func (w *lineSplitter) send(text string, partial bool) {
 	w.emit(LogLine{
 		Container: w.container,
 		Stream:    w.stream,
 		Time:      w.lineTime,
 		// Logs can hold anything, including bytes that are not text.
-		Text: strings.ToValidUTF8(text, "�"),
+		Text:    strings.ToValidUTF8(text, "�"),
+		Partial: partial,
 	})
 }
 

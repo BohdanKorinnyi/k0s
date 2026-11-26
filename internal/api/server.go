@@ -98,6 +98,11 @@ func (s *server) routes() {
 	s.mux.HandleFunc("GET /api/hosts/{host}/containers/{id}/env", s.handleEnvNames)
 	s.mux.HandleFunc("POST /api/hosts/{host}/containers/{id}/env/reveal", s.handleEnvReveal)
 
+	s.mux.HandleFunc("GET /api/hosts/{host}/containers/{id}/logs/ws", s.handleContainerLogsWS)
+	s.mux.HandleFunc("GET /api/hosts/{host}/containers/{id}/logs/download", s.handleLogsDownload)
+	s.mux.HandleFunc("GET /api/hosts/{host}/services/{key}/logs/ws", s.handleServiceLogsWS)
+	s.mux.HandleFunc("GET /api/hosts/{host}/containers/{id}/exec/ws", s.handleExecWS)
+
 	s.mux.HandleFunc("GET /api/registries", s.handleRegistriesList)
 	s.mux.HandleFunc("POST /api/registries", s.handleRegistryCreate)
 	s.mux.HandleFunc("PUT /api/registries/{id}", s.handleRegistryUpdate)

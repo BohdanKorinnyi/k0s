@@ -116,7 +116,13 @@ func TestReadLogsHugeLine(t *testing.T) {
 		t.Fatalf("got %d lines, want the huge line in at least 3 pieces plus the next line", len(got))
 	}
 	var rebuilt strings.Builder
-	for _, l := range got[:len(got)-1] {
+	pieces := got[:len(got)-1]
+	for i, l := range pieces {
+		// Every piece but the last says the line goes on, so a reader can
+		// put the line back together.
+		if wantPartial := i < len(pieces)-1; l.Partial != wantPartial {
+			t.Errorf("piece %d of %d: Partial = %v, want %v", i+1, len(pieces), l.Partial, wantPartial)
+		}
 		if len(l.Text) > MaxLine {
 			t.Errorf("a piece is %d bytes, over MaxLine", len(l.Text))
 		}
