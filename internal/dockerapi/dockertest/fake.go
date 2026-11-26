@@ -65,6 +65,7 @@ type Fake struct {
 	auth       map[string]string
 	execs      map[string]string // exec ID → container ID
 	lastExec   client.ExecCreateOptions
+	lastLogs   client.ContainerLogsOptions
 	serial     int
 }
 
@@ -252,6 +253,13 @@ func (f *Fake) LastExec() client.ExecCreateOptions {
 	return f.lastExec
 }
 
+// LastLogs returns the options of the most recent ContainerLogs.
+func (f *Fake) LastLogs() client.ContainerLogsOptions {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.lastLogs
+}
+
 // ---- dockerapi.Client ----
 
 func (f *Fake) Ping(context.Context, client.PingOptions) (client.PingResult, error) {
@@ -437,10 +445,11 @@ func (f *Fake) ContainerCreate(_ context.Context, options client.ContainerCreate
 	return client.ContainerCreateResult{ID: c.ID}, nil
 }
 
-func (f *Fake) ContainerLogs(_ context.Context, containerID string, _ client.ContainerLogsOptions) (client.ContainerLogsResult, error) {
+func (f *Fake) ContainerLogs(_ context.Context, containerID string, options client.ContainerLogsOptions) (client.ContainerLogsResult, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.counts["ContainerLogs"]++
+	f.lastLogs = options
 	c := f.find(containerID)
 	if c == nil {
 		return nil, noSuchContainer(containerID)
