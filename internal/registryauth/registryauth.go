@@ -50,6 +50,32 @@ func (s Static) Login(_ context.Context, registryHost string) (Credential, bool,
 	return Credential{}, false, nil
 }
 
+// Chain asks several providers in turn and uses the first login found. It is
+// how another kind of login is added next to the saved ones:
+//
+//	auth := registryauth.Chain{saved, ecr}
+//
+// A provider that fails ends the search with its error: pulling without the
+// login that was meant to be used would only fail later, less clearly.
+type Chain []Provider
+
+// Login returns the first login any provider has for the registry.
+func (c Chain) Login(ctx context.Context, registryHost string) (Credential, bool, error) {
+	for _, p := range c {
+		if p == nil {
+			continue
+		}
+		cred, ok, err := p.Login(ctx, registryHost)
+		if err != nil {
+			return Credential{}, false, err
+		}
+		if ok {
+			return cred, true, nil
+		}
+	}
+	return Credential{}, false, nil
+}
+
 // dockerHubAliases are the names Docker Hub goes by.
 var dockerHubAliases = map[string]bool{
 	"docker.io":               true,

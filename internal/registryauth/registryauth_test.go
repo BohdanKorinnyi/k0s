@@ -141,3 +141,45 @@ func TestEncodedProviderError(t *testing.T) {
 		t.Errorf("err = %v, want the provider's error", err)
 	}
 }
+
+type fixed struct {
+	host string
+	cred Credential
+}
+
+func (f fixed) Login(_ context.Context, registryHost string) (Credential, bool, error) {
+	if registryHost == f.host {
+		return f.cred, true, nil
+	}
+	return Credential{}, false, nil
+}
+
+func TestChain(t *testing.T) {
+	saved := static(Credential{Address: "ghcr.io", Username: "saved"})
+	cloud := fixed{host: "123456789.dkr.ecr.eu-west-1.amazonaws.com", cred: Credential{Username: "AWS", Password: "token"}}
+	override := fixed{host: "ghcr.io", cred: Credential{Username: "second"}}
+	chain := Chain{saved, cloud, override}
+
+	// The first provider that has a login wins.
+	c, ok, err := chain.Login(context.Background(), "ghcr.io")
+	if err != nil || !ok || c.Username != "saved" {
+		t.Errorf("ghcr.io: %+v, %v, %v; want the first provider's login", c, ok, err)
+	}
+	// A registry only a later provider knows is found there.
+	c, ok, _ = chain.Login(context.Background(), "123456789.dkr.ecr.eu-west-1.amazonaws.com")
+	if !ok || c.Username != "AWS" {
+		t.Errorf("ecr: %+v, %v", c, ok)
+	}
+	if _, ok, err := chain.Login(context.Background(), "quay.io"); ok || err != nil {
+		t.Errorf("quay.io: found = %v, err = %v; want not found", ok, err)
+	}
+	// A provider that fails stops the search: better an error than quietly
+	// pulling without the login that was meant to be used.
+	if _, _, err := (Chain{failing{}, saved}).Login(context.Background(), "ghcr.io"); err == nil {
+		t.Error("a failing provider was skipped")
+	}
+	// Nil entries and an empty chain are harmless.
+	if _, ok, err := (Chain{nil}).Login(context.Background(), "ghcr.io"); ok || err != nil {
+		t.Errorf("chain of nil: %v, %v", ok, err)
+	}
+}
