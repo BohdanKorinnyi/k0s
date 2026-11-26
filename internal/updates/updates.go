@@ -17,8 +17,8 @@ import (
 	"github.com/moby/moby/api/types/image"
 	"github.com/moby/moby/client"
 
-	"dockpanel/internal/dockerapi"
-	"dockpanel/internal/registryauth"
+	"dc0s/internal/dockerapi"
+	"dc0s/internal/registryauth"
 )
 
 // Status is the outcome of a check for one image reference.

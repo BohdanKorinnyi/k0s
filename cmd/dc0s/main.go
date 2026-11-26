@@ -1,4 +1,4 @@
-// Command dockpanel serves the web control panel.
+// Command dc0s serves the web control panel.
 package main
 
 import (
@@ -16,15 +16,15 @@ import (
 	"syscall"
 	"time"
 
-	"dockpanel/internal/actions"
-	"dockpanel/internal/api"
-	"dockpanel/internal/appinfo"
-	"dockpanel/internal/config"
-	"dockpanel/internal/hosts"
-	"dockpanel/internal/registryauth"
-	"dockpanel/internal/store"
-	"dockpanel/internal/updates"
-	"dockpanel/internal/webui"
+	"dc0s/internal/actions"
+	"dc0s/internal/api"
+	"dc0s/internal/appinfo"
+	"dc0s/internal/config"
+	"dc0s/internal/hosts"
+	"dc0s/internal/registryauth"
+	"dc0s/internal/store"
+	"dc0s/internal/updates"
+	"dc0s/internal/webui"
 )
 
 func main() {

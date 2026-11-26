@@ -1,17 +1,16 @@
 // Package appinfo is the one place the product's name is defined.
 //
-// To rename the project, change Name and EnvPrefix here, the constants in
-// web/src/appinfo.ts, the Go module path, and the image name in the Makefile
-// and compose.yaml.
+// The name also appears in a handful of other places (the frontend, the module
+// path, image and volume names); CONTRIBUTING.md lists them under "The name".
 package appinfo
 
 const (
 	// Name is the product name, used for the binary, cookies and log lines.
-	Name = "dockpanel"
+	Name = "dc0s"
 	// EnvPrefix starts every environment variable the program reads.
-	EnvPrefix = "DOCKPANEL_"
+	EnvPrefix = "DC0S_"
 )
 
 // Version is set at build time with
-// -ldflags "-X dockpanel/internal/appinfo.Version=1.2.3".
+// -ldflags "-X dc0s/internal/appinfo.Version=1.2.3".
 var Version = "dev"

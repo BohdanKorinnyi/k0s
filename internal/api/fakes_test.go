@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"sync"
 
-	"dockpanel/internal/dockerapi"
-	"dockpanel/internal/dockerapi/dockertest"
-	"dockpanel/internal/store"
+	"dc0s/internal/dockerapi"
+	"dc0s/internal/dockerapi/dockertest"
+	"dc0s/internal/store"
 )
 
 // fakeHosts stands in for hosts.Manager: each host ID maps to a fake daemon.

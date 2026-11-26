@@ -1,4 +1,4 @@
-# dockpanel
+# dc0s
 
 One web page to look after Docker on several hosts. Pick a host, see what is
 running, and do the things you do all day: restart a service, pull the newest
@@ -12,9 +12,6 @@ installed on the hosts.
 ![The services of one host](docs/screenshot-services.jpg)
 
 ![One service: its containers, live logs, env, shell and info](docs/screenshot-service.jpg)
-
-> `dockpanel` is a working name. It is defined in one place and easy to change;
-> see [CONTRIBUTING](CONTRIBUTING.md#the-name).
 
 ## What it does
 
@@ -39,8 +36,8 @@ installed on the hosts.
 You need Docker.
 
 ```sh
-git clone <this repository> dockpanel
-cd dockpanel
+git clone <this repository> dc0s
+cd dc0s
 docker compose up -d --build
 ```
 
@@ -50,15 +47,15 @@ already there as host **local**.
 Without Compose:
 
 ```sh
-docker build -t dockpanel .
-docker network create dockpanel
-docker run -d --name dockpanel \
-  --network dockpanel \
+docker build -t dc0s .
+docker network create dc0s
+docker run -d --name dc0s \
+  --network dc0s \
   --stop-timeout 180 \
   -p 127.0.0.1:8080:8080 \
-  -v dockpanel-data:/data \
+  -v dc0s-data:/data \
   -v /var/run/docker.sock:/var/run/docker.sock \
-  dockpanel
+  dc0s
 ```
 
 Three details in both matter:
@@ -168,7 +165,7 @@ then replaces every container that is behind it:
 - If a health check is still undecided when the wait ends, that container is
   left running on the new image, but the rest are **not** replaced; run the
   action again once it is healthy. The wait is at least two minutes
-  (`DOCKPANEL_HEALTH_TIMEOUT`) and at least as long as the container's own
+  (`DC0S_HEALTH_TIMEOUT`) and at least as long as the container's own
   health schedule needs to reach a verdict.
 - If nothing new was pulled and nothing is behind, nothing is touched.
 - Compose still recognises the containers afterwards.
@@ -237,8 +234,8 @@ worries you, set a password.
 
 To use it from other machines on a private network:
 
-1. Set a password: `DOCKPANEL_PASSWORD` (or `DOCKPANEL_PASSWORD_FILE`).
-2. Add the hostname you will reach it by: `DOCKPANEL_ALLOWED_HOSTS=panel.lan`.
+1. Set a password: `DC0S_PASSWORD` (or `DC0S_PASSWORD_FILE`).
+2. Add the hostname you will reach it by: `DC0S_ALLOWED_HOSTS=panel.lan`.
 3. Publish the port more widely (`-p 8080:8080`), ideally behind a reverse
    proxy that adds HTTPS. The proxy must pass the `Host` header through
    unchanged and allow WebSocket upgrades, or logs and shells will not
@@ -253,17 +250,17 @@ Environment variables, all optional:
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `DOCKPANEL_ADDR` | `:8080` in the image | Address to listen on. The program run outside the image defaults to `127.0.0.1:8080` |
-| `DOCKPANEL_DATA_DIR` | `/data` | Where hosts, logins and SSH host keys are kept |
-| `DOCKPANEL_PASSWORD` | none | Require this password |
-| `DOCKPANEL_PASSWORD_FILE` | none | Read the password from a file (Docker secrets) |
-| `DOCKPANEL_ALLOWED_HOSTS` | none | Extra hostnames to answer to, comma-separated |
-| `DOCKPANEL_HEALTH_TIMEOUT` | `2m` | How long a replaced container may take to become healthy |
-| `DOCKPANEL_LOCAL_SOCKET` | `/var/run/docker.sock` | Socket offered as host "local" on first run |
-| `DOCKPANEL_SSH_DIR` | `/ssh` | Folder of SSH keys and config to copy into place at start |
+| `DC0S_ADDR` | `:8080` in the image | Address to listen on. The program run outside the image defaults to `127.0.0.1:8080` |
+| `DC0S_DATA_DIR` | `/data` | Where hosts, logins and SSH host keys are kept |
+| `DC0S_PASSWORD` | none | Require this password |
+| `DC0S_PASSWORD_FILE` | none | Read the password from a file (Docker secrets) |
+| `DC0S_ALLOWED_HOSTS` | none | Extra hostnames to answer to, comma-separated |
+| `DC0S_HEALTH_TIMEOUT` | `2m` | How long a replaced container may take to become healthy |
+| `DC0S_LOCAL_SOCKET` | `/var/run/docker.sock` | Socket offered as host "local" on first run |
+| `DC0S_SSH_DIR` | `/ssh` | Folder of SSH keys and config to copy into place at start |
 
 Everything the panel saves is one JSON file in the data volume,
-`dockpanel.json`. Back it up, or edit it by hand while the panel is stopped.
+`dc0s.json`. Back it up, or edit it by hand while the panel is stopped.
 
 ## Not yet
 

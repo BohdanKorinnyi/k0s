@@ -27,10 +27,10 @@ import (
 	"github.com/moby/moby/api/types/mount"
 	"github.com/moby/moby/api/types/network"
 
-	"dockpanel/internal/actions"
-	"dockpanel/internal/dockerapi/dockertest"
-	"dockpanel/internal/services"
-	"dockpanel/internal/store"
+	"dc0s/internal/actions"
+	"dc0s/internal/dockerapi/dockertest"
+	"dc0s/internal/services"
+	"dc0s/internal/store"
 )
 
 const (
@@ -253,7 +253,7 @@ func selfSigned(t *testing.T) (certPEM, keyPEM string) {
 	}
 	tmpl := &x509.Certificate{
 		SerialNumber:          big.NewInt(1),
-		Subject:               pkix.Name{CommonName: "dockpanel test"},
+		Subject:               pkix.Name{CommonName: "dc0s test"},
 		NotBefore:             time.Now().Add(-time.Hour),
 		NotAfter:              time.Now().Add(time.Hour),
 		IsCA:                  true,
@@ -1080,13 +1080,13 @@ func TestPullRestartOnThePanelItselfIsRefused(t *testing.T) {
 	var own string
 	r := newRig(t, func(d *Deps) { d.SelfContainerID = func() string { return own } })
 	h, f := r.addHost("local", false)
-	c := dockertest.Running("dockpanel", "ghcr.io/acme/dockpanel:latest")
+	c := dockertest.Running("dc0s", "ghcr.io/acme/dc0s:latest")
 	c.Image = "sha256:old"
 	own = f.AddContainer(c)[:12]
-	f.AddImage("ghcr.io/acme/dockpanel:latest", image.InspectResponse{ID: "sha256:old"})
-	f.SetPullResult("ghcr.io/acme/dockpanel:latest", image.InspectResponse{ID: "sha256:new"})
+	f.AddImage("ghcr.io/acme/dc0s:latest", image.InspectResponse{ID: "sha256:old"})
+	f.SetPullResult("ghcr.io/acme/dc0s:latest", image.InspectResponse{ID: "sha256:new"})
 
-	evs := events(t, r.do("POST", actionPath(h.ID, "s~dockpanel", "pull-restart"), nil))
+	evs := events(t, r.do("POST", actionPath(h.ID, "s~dc0s", "pull-restart"), nil))
 	last := evs[len(evs)-1]
 	if last.Level != "error" || !strings.Contains(last.Step, "the panel's own container") {
 		t.Errorf("last event = %+v, want a refusal", last)

@@ -15,8 +15,8 @@ import (
 	"github.com/coder/websocket"
 	cerrdefs "github.com/containerd/errdefs"
 
-	"dockpanel/internal/services"
-	"dockpanel/internal/streams"
+	"dc0s/internal/services"
+	"dc0s/internal/streams"
 )
 
 const (

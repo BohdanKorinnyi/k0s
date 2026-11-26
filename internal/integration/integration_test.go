@@ -4,7 +4,7 @@
 //
 //	make test-integration
 //
-// Everything it creates is named "dockpanel-it-…" and removed afterwards. It
+// Everything it creates is named "dc0s-it-…" and removed afterwards. It
 // never touches anything else on the daemon.
 package integration
 
@@ -25,17 +25,17 @@ import (
 	"github.com/moby/moby/api/types/mount"
 	"github.com/moby/moby/client"
 
-	"dockpanel/internal/actions"
-	"dockpanel/internal/hosts"
-	"dockpanel/internal/services"
-	"dockpanel/internal/store"
-	"dockpanel/internal/streams"
-	"dockpanel/internal/updates"
+	"dc0s/internal/actions"
+	"dc0s/internal/hosts"
+	"dc0s/internal/services"
+	"dc0s/internal/store"
+	"dc0s/internal/streams"
+	"dc0s/internal/updates"
 )
 
 const (
 	baseImage = "alpine:3.19"
-	prefix    = "dockpanel-it-"
+	prefix    = "dc0s-it-"
 	socketURL = "unix:///var/run/docker.sock"
 )
 
@@ -246,7 +246,7 @@ func TestRealReplace(t *testing.T) {
 		&container.Config{
 			Image:   ref,
 			Env:     []string{"APP_ENV=prod"},
-			Labels:  map[string]string{"dockpanel.it": "1"},
+			Labels:  map[string]string{"dc0s.it": "1"},
 			Volumes: map[string]struct{}{"/anon": {}},
 		},
 		&container.HostConfig{
@@ -298,7 +298,7 @@ func TestRealReplace(t *testing.T) {
 	if !slices.Contains(after.Config.Env, "APP_ENV=prod") {
 		t.Errorf("env = %v, want APP_ENV=prod kept", after.Config.Env)
 	}
-	if after.Config.Labels["dockpanel.it"] != "1" {
+	if after.Config.Labels["dc0s.it"] != "1" {
 		t.Errorf("labels = %v, want the user's label kept", after.Config.Labels)
 	}
 	if after.HostConfig.RestartPolicy.Name != "unless-stopped" {

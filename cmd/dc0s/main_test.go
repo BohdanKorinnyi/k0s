@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"dockpanel/internal/config"
-	"dockpanel/internal/store"
+	"dc0s/internal/config"
+	"dc0s/internal/store"
 )
 
 func openStore(t *testing.T, path string) *store.Store {
@@ -25,7 +25,7 @@ func TestLocalHostAdded(t *testing.T) {
 	if err := os.WriteFile(socket, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	dataFile := filepath.Join(dir, "data", "dockpanel.json")
+	dataFile := filepath.Join(dir, "data", "dc0s.json")
 
 	// First run with the socket mounted: the first screen is not empty.
 	st := openStore(t, dataFile)
@@ -53,7 +53,7 @@ func TestLocalHostAdded(t *testing.T) {
 
 func TestLocalHostNotAddedWithoutSocket(t *testing.T) {
 	dir := t.TempDir()
-	st := openStore(t, filepath.Join(dir, "dockpanel.json"))
+	st := openStore(t, filepath.Join(dir, "dc0s.json"))
 	added, err := addLocalHost(st, filepath.Join(dir, "no-such.sock"))
 	if err != nil || added {
 		t.Errorf("addLocalHost = %v, %v; want false when the socket is not mounted", added, err)
@@ -73,7 +73,7 @@ func TestExposureWarning(t *testing.T) {
 		t.Errorf("extra hostname with a password warned: %q", w)
 	}
 	w := exposureWarning(config.Config{AllowedHosts: append(defaults, "panel.lan")})
-	if !strings.Contains(w, "panel.lan") || !strings.Contains(w, "DOCKPANEL_PASSWORD") {
+	if !strings.Contains(w, "panel.lan") || !strings.Contains(w, "DC0S_PASSWORD") {
 		t.Errorf("warning = %q, want it to name the hostname and the password setting", w)
 	}
 }

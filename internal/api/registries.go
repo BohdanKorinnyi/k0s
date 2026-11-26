@@ -3,7 +3,7 @@ package api
 import (
 	"net/http"
 
-	"dockpanel/internal/store"
+	"dc0s/internal/store"
 )
 
 type registryInput struct {

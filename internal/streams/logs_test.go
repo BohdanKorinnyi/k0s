@@ -10,8 +10,8 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"dockpanel/internal/dockerapi/dockertest"
-	"dockpanel/internal/services"
+	"dc0s/internal/dockerapi/dockertest"
+	"dc0s/internal/services"
 )
 
 var ctx = context.Background()

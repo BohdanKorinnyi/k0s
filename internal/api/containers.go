@@ -12,8 +12,8 @@ import (
 	"github.com/moby/moby/api/types/network"
 	"github.com/moby/moby/client"
 
-	"dockpanel/internal/dockerapi"
-	"dockpanel/internal/services"
+	"dc0s/internal/dockerapi"
+	"dc0s/internal/services"
 )
 
 func findService(groups []services.Group, key string) (services.Service, bool) {

@@ -14,9 +14,9 @@ import (
 	"fmt"
 	"time"
 
-	"dockpanel/internal/dockerapi"
-	"dockpanel/internal/registryauth"
-	"dockpanel/internal/services"
+	"dc0s/internal/dockerapi"
+	"dc0s/internal/registryauth"
+	"dc0s/internal/services"
 )
 
 // Levels of an Event.

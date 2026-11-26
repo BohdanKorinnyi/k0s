@@ -242,7 +242,7 @@ func (s *Store) commit(next fileData) error {
 // leaves either the old file or the new one, never half of each. The file is
 // readable only by its owner: it holds registry passwords and TLS keys.
 func writeFileAtomic(path string, data []byte) error {
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".dockpanel-*.tmp")
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".dc0s-*.tmp")
 	if err != nil {
 		return err
 	}

@@ -1,6 +1,6 @@
 # Everything here needs only Docker. Local Go or Node are used when present.
 
-IMAGE   ?= dockpanel:dev
+IMAGE   ?= dc0s:dev
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
 .PHONY: test test-go test-web test-integration web build run
@@ -19,7 +19,7 @@ test-web:
 
 ## test-integration: tests against the local Docker daemon (creates and removes throwaway containers)
 test-integration:
-	DOCKPANEL_GO_IN_DOCKER=1 DOCKPANEL_DOCKER_SOCK=$${DOCKER_SOCK:-/var/run/docker.sock} \
+	DC0S_GO_IN_DOCKER=1 DC0S_DOCKER_SOCK=$${DOCKER_SOCK:-/var/run/docker.sock} \
 		./scripts/go test -tags integration -count=1 ./internal/integration/...
 
 ## web: build the frontend straight into the folder the Go program embeds
@@ -35,6 +35,6 @@ build:
 ## run: run the image against the local Docker daemon on http://localhost:8080
 run: build
 	docker run --rm -p 127.0.0.1:8080:8080 \
-		-v dockpanel-data:/data \
+		-v dc0s-data:/data \
 		-v /var/run/docker.sock:/var/run/docker.sock \
 		$(IMAGE)

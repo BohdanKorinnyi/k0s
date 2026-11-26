@@ -1,4 +1,4 @@
-# dockpanel First Version Implementation Plan
+# dc0s First Version Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -8,13 +8,13 @@
 
 **Tech Stack:** Go 1.27 (stdlib `net/http` routing), `github.com/moby/moby/client` v0.6.3 + `github.com/moby/moby/api` v1.57.0, `github.com/coder/websocket` v1.8.15, `github.com/distribution/reference` v0.6.0. Frontend: Node 22, React 19.3, react-router 8.5, Vite 8.3, TypeScript 7.0, Vitest 5.1, `@xterm/xterm` 6.0 + `@xterm/addon-fit` 0.11, `anser` 2.3.
 
-**Spec:** `docs/superpowers/specs/2026-11-26-dockpanel-design.md`
+**Spec:** `docs/superpowers/specs/2026-11-26-dc0s-design.md`
 
 ## Global Constraints
 
-- The product name lives in `internal/appinfo` (`Name = "dockpanel"`, `EnvPrefix = "DOCKPANEL_"`) and `web/src/appinfo.ts`. Nothing else hardcodes it except the Go module path (`module dockpanel`), the image name in `Makefile`/`compose.yaml`, and the docs.
-- Licence MIT, holder "dockpanel contributors".
-- The only prerequisite to build and test is Docker. Every Go command goes through `./scripts/go` (uses local Go when present, otherwise a `golang:1.27-alpine` container with cache volumes `dockpanel-gomod`, `dockpanel-gobuild`).
+- The product name lives in `internal/appinfo` (`Name = "dc0s"`, `EnvPrefix = "DC0S_"`) and `web/src/appinfo.ts`. Nothing else hardcodes it except the Go module path (`module dc0s`), the image name in `Makefile`/`compose.yaml`, and the docs.
+- Licence MIT, holder "dc0s contributors".
+- The only prerequisite to build and test is Docker. Every Go command goes through `./scripts/go` (uses local Go when present, otherwise a `golang:1.27-alpine` container with cache volumes `dc0s-gomod`, `dc0s-gobuild`).
 - Secrets (registry passwords, TLS client keys) are never present in any API response. The data file is mode `0600`, its directory `0700`.
 - Default allowed hostnames: `localhost`, `127.0.0.1`, `::1`. Documented run command publishes on `127.0.0.1` only.
 - Untrusted text (log lines, env values, container names, labels, Docker error text) is rendered as text nodes only. No `innerHTML` / `dangerouslySetInnerHTML` anywhere in `web/src`.
@@ -45,14 +45,14 @@ Each task below lists **Files**, **Interfaces**, **Tests** (name → what it ass
 
 ### Task 1: Skeleton, tooling, configuration
 
-**Files:** `go.mod`, `scripts/go`, `Makefile`, `LICENSE`, `.dockerignore`, `internal/appinfo/appinfo.go`, `internal/config/config.go`, `internal/config/config_test.go`, `cmd/dockpanel/main.go` (prints name and version only; completed in Task 11).
+**Files:** `go.mod`, `scripts/go`, `Makefile`, `LICENSE`, `.dockerignore`, `internal/appinfo/appinfo.go`, `internal/config/config.go`, `internal/config/config_test.go`, `cmd/dc0s/main.go` (prints name and version only; completed in Task 11).
 
 **Interfaces — produces:**
 
 ```go
 // appinfo
-const Name = "dockpanel"
-const EnvPrefix = "DOCKPANEL_"
+const Name = "dc0s"
+const EnvPrefix = "DC0S_"
 var Version = "dev" // set with -ldflags
 
 // config
@@ -67,15 +67,15 @@ type Config struct {
 func Load(getenv func(string) string, readFile func(string) ([]byte, error)) (Config, error)
 ```
 
-`Makefile` targets: `test` (Go + web), `test-go`, `test-web`, `test-integration`, `web`, `build` (image `dockpanel:dev`), `run`.
+`Makefile` targets: `test` (Go + web), `test-go`, `test-web`, `test-integration`, `web`, `build` (image `dc0s:dev`), `run`.
 
 **Tests:**
 - `TestLoadDefaults` → `Addr == ":8080"`, `DataDir == "/data"`, `AllowedHosts == ["localhost","127.0.0.1","::1"]`, `HealthTimeout == 2*time.Minute`, `LocalSocket == "/var/run/docker.sock"`, `Password == ""`.
 - `TestLoadAllowedHosts` → `ALLOWED_HOSTS=" panel.lan, Box.Local "` appends `"panel.lan","box.local"` after the defaults.
 - `TestLoadPasswordFile` → file content `"s3cret\n"` gives `Password == "s3cret"`; `PASSWORD` and `PASSWORD_FILE` both set → error naming both variables.
-- `TestLoadBadDuration` → `HEALTH_TIMEOUT=soon` → error containing `DOCKPANEL_HEALTH_TIMEOUT`.
+- `TestLoadBadDuration` → `HEALTH_TIMEOUT=soon` → error containing `DC0S_HEALTH_TIMEOUT`.
 
-**Verify:** `./scripts/go test ./internal/config/...` → `ok`; `./scripts/go run ./cmd/dockpanel -version` → `dockpanel dev`.
+**Verify:** `./scripts/go test ./internal/config/...` → `ok`; `./scripts/go run ./cmd/dc0s -version` → `dc0s dev`.
 
 ---
 
@@ -456,10 +456,10 @@ Order of checks: panic recovery → allowed hostname → cross-site → session 
 Response headers on every response: `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `X-Frame-Options: DENY`, `Content-Security-Policy: default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: wss:; frame-ancestors 'none'`.
 
 **Tests:**
-- `TestHostAllowed` (table) → `localhost:8080`, `127.0.0.1:8080`, `[::1]:8080`, `LOCALHOST` → true; `evil.example`, `localhost.evil.example`, `""` → false; with `panel.lan` allowed, `panel.lan:8080` → true. A request with a refused Host gets 403 and a body naming `DOCKPANEL_ALLOWED_HOSTS`.
+- `TestHostAllowed` (table) → `localhost:8080`, `127.0.0.1:8080`, `[::1]:8080`, `LOCALHOST` → true; `evil.example`, `localhost.evil.example`, `""` → false; with `panel.lan` allowed, `panel.lan:8080` → true. A request with a refused Host gets 403 and a body naming `DC0S_ALLOWED_HOSTS`.
 - `TestCrossSiteOK` (table, POST unless noted) → `Sec-Fetch-Site: same-origin` true; `none` true; `cross-site` false; `same-site` false; no `Sec-Fetch-Site` with `Origin: http://localhost:8080` and Host `localhost:8080` true; `Origin: http://evil.example` false; neither header true; GET with `cross-site` true; GET with `Upgrade: websocket` and `Origin: http://evil.example` false.
 - `TestNoPassword` → `/api/session` → `authRequired false`, `authenticated true`.
-- `TestPasswordFlow` → protected route → 401 code `unauthenticated`; wrong password → 401; right → cookie `dockpanel_session` with `HttpOnly` and `SameSite=Strict`; protected route then 200; after logout 401.
+- `TestPasswordFlow` → protected route → 401 code `unauthenticated`; wrong password → 401; right → cookie `dc0s_session` with `HttpOnly` and `SameSite=Strict`; protected route then 200; after logout 401.
 - `TestLoginRateLimit` → 10 wrong passwords, the 11th → 429.
 - `TestUI` → `/` → `index.html`; `/h/aws/s/c~shop~api` → `index.html`; `/assets/missing.js` → 404; `/api/nope` → 404 JSON with code `not_found`; an `fs.FS` without `index.html` → 200 with text containing `UI not built`.
 - `TestSecurityHeaders` → the four headers above on `/` and on `/api/session`.
@@ -524,7 +524,7 @@ Action rules: on a protected host `confirm` must equal the service name for ever
 
 ### Task 11: Live connections, wiring, image
 
-**Files:** `internal/api/ws.go` (+ test), `cmd/dockpanel/main.go`, `Dockerfile`, `compose.yaml`, `internal/integration/integration_test.go` (build tag `integration`).
+**Files:** `internal/api/ws.go` (+ test), `cmd/dc0s/main.go`, `Dockerfile`, `compose.yaml`, `internal/integration/integration_test.go` (build tag `integration`).
 
 **Interfaces — produces:**
 
@@ -532,18 +532,18 @@ Action rules: on a protected host `confirm` must equal the service name for ever
 - `GET /api/hosts/{host}/containers/{id}/logs/download?timestamps=1` — `text/plain`, `Content-Disposition: attachment; filename="<container>.log"`, whole log.
 - `GET /api/hosts/{host}/containers/{id}/exec/ws?cols=&rows=` — WebSocket; binary frames carry terminal bytes both ways; text frames are control JSON: browser → `{"type":"resize","cols":N,"rows":N}`; server → `{"type":"exit","code":N,"message":"…"}` then close. Closing the socket ends the session.
 - `main`: load config → open store → on a new store, add host `{Name: "local", URL: "unix://" + LocalSocket}` when that socket exists → hosts manager (known hosts file and control directory under the data directory) → checker → `api.New` → serve, with graceful shutdown on SIGINT/SIGTERM. Log a warning when extra hostnames are allowed and no password is set. Flag `-version`.
-- `Dockerfile`: stages `golang:1.27-alpine` (build with `-ldflags "-X dockpanel/internal/appinfo.Version=…"`) and `alpine:3` with `openssh-client`, `ca-certificates`; `VOLUME /data`, `EXPOSE 8080`. In this task the image has no UI yet (it answers "UI not built"); Task 12 adds a `node:22-alpine` stage that builds `web/` and copies `web/dist` into `internal/webui/dist` before the Go build.
-- `compose.yaml`: port `127.0.0.1:8080:8080`, volume `dockpanel-data:/data`, `/var/run/docker.sock:/var/run/docker.sock`, commented `~/.ssh:/root/.ssh:ro`.
+- `Dockerfile`: stages `golang:1.27-alpine` (build with `-ldflags "-X dc0s/internal/appinfo.Version=…"`) and `alpine:3` with `openssh-client`, `ca-certificates`; `VOLUME /data`, `EXPOSE 8080`. In this task the image has no UI yet (it answers "UI not built"); Task 12 adds a `node:22-alpine` stage that builds `web/` and copies `web/dist` into `internal/webui/dist` before the Go build.
+- `compose.yaml`: port `127.0.0.1:8080:8080`, volume `dc0s-data:/data`, `/var/run/docker.sock:/var/run/docker.sock`, commented `~/.ssh:/root/.ssh:ro`.
 
 **Tests:**
 - `TestLogsWS` → client receives arrays whose lines match the fake's log; `tail=abc` → 400; cross-origin `Origin` → 403.
 - `TestMergedLogsWS` → lines from two containers, each with its `c`.
 - `TestDownload` → headers above; body has every line; `timestamps=1` prefixes them.
 - `TestExecWS` → bytes sent are echoed by the fake exec and received back; a resize frame records `ExecResize`; a no-shell exec → an `exit` control frame whose message contains `no shell`.
-- `TestLocalHostAdded` (in `cmd/dockpanel`) → new store plus existing socket path → host `local`; socket missing → no host; existing store → unchanged.
-- Integration (real daemon, `make test-integration`): `TestRealList` (a labelled `alpine` container appears as a Compose service), `TestRealRestart`, `TestRealReplace` (tag `dockpanel-it:latest` at one alpine version, create a container with an env, a label, a named volume and an anonymous volume, retag to another alpine version, `Replace` → same name, new image ID, env and label kept, both volumes kept by name, `PATH` not pinned in the new config), `TestRealLogs`, `TestRealShell` (send `echo hi\n`, read `hi`).
+- `TestLocalHostAdded` (in `cmd/dc0s`) → new store plus existing socket path → host `local`; socket missing → no host; existing store → unchanged.
+- Integration (real daemon, `make test-integration`): `TestRealList` (a labelled `alpine` container appears as a Compose service), `TestRealRestart`, `TestRealReplace` (tag `dc0s-it:latest` at one alpine version, create a container with an env, a label, a named volume and an anonymous volume, retag to another alpine version, `Replace` → same name, new image ID, env and label kept, both volumes kept by name, `PATH` not pinned in the new config), `TestRealLogs`, `TestRealShell` (send `echo hi\n`, read `hi`).
 
-**Verify:** `make test` → ok; `make test-integration` → ok; `make build && docker run --rm -d -p 127.0.0.1:18080:8080 -v /var/run/docker.sock:/var/run/docker.sock dockpanel:dev`, then `curl -s localhost:18080/api/hosts` shows `local` and `curl -s localhost:18080/api/hosts/local/services` lists this machine's containers.
+**Verify:** `make test` → ok; `make test-integration` → ok; `make build && docker run --rm -d -p 127.0.0.1:18080:8080 -v /var/run/docker.sock:/var/run/docker.sock dc0s:dev`, then `curl -s localhost:18080/api/hosts` shows `local` and `curl -s localhost:18080/api/hosts/local/services` lists this machine's containers.
 
 ---
 

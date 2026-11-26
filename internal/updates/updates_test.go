@@ -11,8 +11,8 @@ import (
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/moby/moby/api/types/image"
 
-	"dockpanel/internal/dockerapi/dockertest"
-	"dockpanel/internal/registryauth"
+	"dc0s/internal/dockerapi/dockertest"
+	"dc0s/internal/registryauth"
 )
 
 const (

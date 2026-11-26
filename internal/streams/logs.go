@@ -15,8 +15,8 @@ import (
 	"github.com/moby/moby/api/pkg/stdcopy"
 	"github.com/moby/moby/client"
 
-	"dockpanel/internal/dockerapi"
-	"dockpanel/internal/services"
+	"dc0s/internal/dockerapi"
+	"dc0s/internal/services"
 )
 
 // LogLine is one line of a container's log. The JSON keys are short because a

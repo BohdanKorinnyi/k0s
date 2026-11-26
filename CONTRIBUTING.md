@@ -12,12 +12,12 @@ you have them and containers when you do not.
 ```sh
 make test               # backend and frontend tests; no Docker daemon needed
 make test-integration   # backend against your local Docker daemon
-make build              # the image, as dockpanel:dev
+make build              # the image, as dc0s:dev
 make run                # build and run on http://localhost:8080
 ```
 
 `make test-integration` creates a few containers, images and volumes named
-`dockpanel-it-…` on your local daemon and removes them again. It touches
+`dc0s-it-…` on your local daemon and removes them again. It touches
 nothing else.
 
 For frontend work with hot reload, run the panel and the dev server side by
@@ -29,12 +29,12 @@ cd web && npm install && npm run dev   # terminal 2: the frontend on :5173
 ```
 
 The dev server passes API calls to `http://localhost:8080`; set
-`DOCKPANEL_API` to point it elsewhere.
+`DC0S_API` to point it elsewhere.
 
 ## Layout
 
 ```
-cmd/dockpanel        start-up: read settings, wire the parts, serve
+cmd/dc0s        start-up: read settings, wire the parts, serve
 internal/
   config             settings from environment variables
   store              the JSON data file: hosts and registry logins
@@ -89,7 +89,7 @@ import (
 
 	"github.com/moby/moby/client"
 
-	"dockpanel/internal/dockerapi"
+	"dc0s/internal/dockerapi"
 )
 
 func pauseAction() Action {
@@ -193,7 +193,7 @@ type Provider interface {
 `Static` serves the logins saved in the UI. To add, say, AWS ECR logins that
 refresh themselves, write a provider that answers for ECR hosts and returns
 `false` for everything else, then put it beside the saved ones in
-`cmd/dockpanel/main.go`:
+`cmd/dc0s/main.go`:
 
 ```go
 auth := registryauth.Chain{saved, ecr.New(awsConfig)}
@@ -203,13 +203,24 @@ auth := registryauth.Chain{saved, ecr.New(awsConfig)}
 
 ## The name
 
-`dockpanel` is a working name. To change it:
+The product is called `dc0s`. A fork that wants another name changes it here:
 
-- `internal/appinfo/appinfo.go` — `Name` and `EnvPrefix`
-- `web/src/appinfo.ts` — `APP_NAME`, and the `<title>` in `web/index.html`
-- the module path in `go.mod` (and the imports that use it)
-- the image name in `Makefile` and `compose.yaml`
-- the documents
+- `internal/appinfo/appinfo.go` — `Name` and `EnvPrefix`. The data file's
+  name, the session cookie and every `DC0S_…` setting follow from these two.
+- `web/src/appinfo.ts` — `APP_NAME`; also the `<title>` in `web/index.html`,
+  the package name in `web/package.json` (and its lock file), and the setting
+  prefix in `web/vite.config.ts`.
+- The module path in `go.mod` with the imports that use it, and the folder
+  `cmd/dc0s`.
+- Two file names written at run time: the temporary-file prefix in
+  `internal/store/store.go` and the manifest name in
+  `internal/hosts/sshdir.go`.
+- The image, volume and network names in `Makefile`, `Dockerfile`,
+  `compose.yaml`, `.github/workflows/ci.yml` and `scripts/`.
+- The documents and `LICENSE`.
+
+Replacing `dc0s` and `DC0S` throughout, then renaming `cmd/dc0s`, does all of
+it; the tests use the same names and say so if something was missed.
 
 ## Pull requests
 

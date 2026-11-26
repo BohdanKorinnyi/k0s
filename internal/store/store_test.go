@@ -12,7 +12,7 @@ import (
 
 func open(t *testing.T) (*Store, string) {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "data", "dockpanel.json")
+	path := filepath.Join(t.TempDir(), "data", "dc0s.json")
 	s, err := Open(path)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
@@ -213,7 +213,7 @@ func TestPermissionsAndReload(t *testing.T) {
 }
 
 func TestCorruptFile(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "dockpanel.json")
+	path := filepath.Join(t.TempDir(), "dc0s.json")
 	const garbage = "{not json"
 	if err := os.WriteFile(path, []byte(garbage), 0o600); err != nil {
 		t.Fatal(err)
@@ -232,7 +232,7 @@ func TestCorruptFile(t *testing.T) {
 }
 
 func TestEmptyFileIsANewStore(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "dockpanel.json")
+	path := filepath.Join(t.TempDir(), "dc0s.json")
 	if err := os.WriteFile(path, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}

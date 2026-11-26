@@ -11,7 +11,7 @@ import (
 	"github.com/moby/moby/api/types/image"
 	"github.com/moby/moby/client"
 
-	"dockpanel/internal/dockerapi"
+	"dc0s/internal/dockerapi"
 )
 
 var _ dockerapi.Client = (*Fake)(nil)

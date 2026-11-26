@@ -10,7 +10,7 @@ import (
 // manifestName lists the files a previous PrepareSSHDir copied, so that a
 // later run can remove the ones that are gone from the source — and nothing
 // else.
-const manifestName = ".copied-by-dockpanel"
+const manifestName = ".copied-by-dc0s"
 
 // maxSSHFile is the largest file worth copying. Keys and config are small.
 const maxSSHFile = 1 << 20

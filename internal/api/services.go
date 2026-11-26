@@ -4,9 +4,9 @@ import (
 	"context"
 	"net/http"
 
-	"dockpanel/internal/dockerapi"
-	"dockpanel/internal/services"
-	"dockpanel/internal/store"
+	"dc0s/internal/dockerapi"
+	"dc0s/internal/services"
+	"dc0s/internal/store"
 )
 
 // listServices lists a host within the time limit. On failure it has sent the

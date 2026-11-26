@@ -7,7 +7,7 @@ import (
 	"runtime/debug"
 	"strings"
 
-	"dockpanel/internal/appinfo"
+	"dc0s/internal/appinfo"
 )
 
 // recoverPanics turns a crash in a handler into a 500 instead of a dropped

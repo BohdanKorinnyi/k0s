@@ -14,10 +14,10 @@ import (
 	"testing/fstest"
 	"time"
 
-	"dockpanel/internal/actions"
-	"dockpanel/internal/config"
-	"dockpanel/internal/store"
-	"dockpanel/internal/updates"
+	"dc0s/internal/actions"
+	"dc0s/internal/config"
+	"dc0s/internal/store"
+	"dc0s/internal/updates"
 )
 
 const testHost = "localhost:8080"
@@ -30,7 +30,7 @@ func TestMain(m *testing.M) {
 }
 
 var testUI = fstest.MapFS{
-	"index.html":        {Data: []byte("<!doctype html><title>dockpanel</title>")},
+	"index.html":        {Data: []byte("<!doctype html><title>dc0s</title>")},
 	"assets/app-abc.js": {Data: []byte("console.log('app')")},
 }
 
@@ -165,10 +165,10 @@ func TestRefusedHostGetsAnExplanation(t *testing.T) {
 		if rec.Code != http.StatusForbidden {
 			t.Errorf("%s: status = %d, want 403", path, rec.Code)
 		}
-		if !strings.Contains(rec.Body.String(), "DOCKPANEL_ALLOWED_HOSTS") {
+		if !strings.Contains(rec.Body.String(), "DC0S_ALLOWED_HOSTS") {
 			t.Errorf("%s: body %q does not say how to allow the name", path, rec.Body.String())
 		}
-		if strings.Contains(rec.Body.String(), "<title>dockpanel</title>") {
+		if strings.Contains(rec.Body.String(), "<title>dc0s</title>") {
 			t.Errorf("%s: the page was served to a refused host", path)
 		}
 	}
@@ -225,7 +225,7 @@ type sessionBody struct {
 func TestNoPassword(t *testing.T) {
 	r := newRig(t, nil)
 	s := decode[sessionBody](t, r.do("GET", "/api/session", nil))
-	if s.AuthRequired || !s.Authenticated || s.Name != "dockpanel" || s.Version == "" {
+	if s.AuthRequired || !s.Authenticated || s.Name != "dc0s" || s.Version == "" {
 		t.Errorf("session = %+v, want no login needed", s)
 	}
 	// Without a password every API route is open: an unknown one is simply not found.
@@ -234,7 +234,7 @@ func TestNoPassword(t *testing.T) {
 
 func sessionCookie(rec *httptest.ResponseRecorder) *http.Cookie {
 	for _, c := range rec.Result().Cookies() {
-		if c.Name == "dockpanel_session" {
+		if c.Name == "dc0s_session" {
 			return c
 		}
 	}
@@ -258,7 +258,7 @@ func TestPasswordFlow(t *testing.T) {
 	}
 	cookie := sessionCookie(rec)
 	if cookie == nil {
-		t.Fatal("no dockpanel_session cookie after a correct password")
+		t.Fatal("no dc0s_session cookie after a correct password")
 	}
 	if !cookie.HttpOnly || cookie.SameSite != http.SameSiteStrictMode || cookie.Path != "/" {
 		t.Errorf("cookie = %+v, want HttpOnly, SameSite=Strict, Path=/", cookie)
@@ -278,7 +278,7 @@ func TestPasswordFlow(t *testing.T) {
 	}
 
 	// A made-up token is not a session.
-	wantError(t, r.do("GET", "/api/nope", nil, withCookie(&http.Cookie{Name: "dockpanel_session", Value: strings.Repeat("a", 64)})),
+	wantError(t, r.do("GET", "/api/nope", nil, withCookie(&http.Cookie{Name: "dc0s_session", Value: strings.Repeat("a", 64)})),
 		http.StatusUnauthorized, "unauthenticated")
 
 	if rec := r.do("POST", "/api/logout", nil, withCookie(cookie)); rec.Code != http.StatusNoContent {
@@ -328,7 +328,7 @@ func TestUI(t *testing.T) {
 	// it must reach the app, not be mistaken for a missing file.
 	for _, path := range []string{"/", "/h/aws/s/c~shop~api", "/h/aws/s/s~my.app", "/settings/hosts", "/login"} {
 		rec := r.do("GET", path, nil)
-		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "<title>dockpanel</title>") {
+		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "<title>dc0s</title>") {
 			t.Errorf("%s: status %d, body %q; want the app page", path, rec.Code, rec.Body.String())
 		}
 		if cc := rec.Header().Get("Cache-Control"); cc != "no-cache" {

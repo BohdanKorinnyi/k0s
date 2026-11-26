@@ -9,7 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 
-	"dockpanel/internal/actions"
+	"dc0s/internal/actions"
 )
 
 func (s *server) handleActionsList(w http.ResponseWriter, _ *http.Request) {

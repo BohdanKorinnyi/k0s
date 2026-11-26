@@ -8,7 +8,7 @@ import (
 
 	cerrdefs "github.com/containerd/errdefs"
 
-	"dockpanel/internal/dockerapi/dockertest"
+	"dc0s/internal/dockerapi/dockertest"
 )
 
 func TestStartShell(t *testing.T) {

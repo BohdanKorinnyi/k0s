@@ -17,7 +17,7 @@ import (
 	"github.com/moby/moby/api/types/container"
 	"github.com/moby/moby/client"
 
-	"dockpanel/internal/dockerapi"
+	"dc0s/internal/dockerapi"
 )
 
 // Labels Docker Compose puts on the containers it creates.

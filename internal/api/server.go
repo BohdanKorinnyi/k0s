@@ -9,12 +9,12 @@ import (
 	"sync"
 	"time"
 
-	"dockpanel/internal/actions"
-	"dockpanel/internal/config"
-	"dockpanel/internal/dockerapi"
-	"dockpanel/internal/registryauth"
-	"dockpanel/internal/store"
-	"dockpanel/internal/updates"
+	"dc0s/internal/actions"
+	"dc0s/internal/config"
+	"dc0s/internal/dockerapi"
+	"dc0s/internal/registryauth"
+	"dc0s/internal/store"
+	"dc0s/internal/updates"
 )
 
 // HostClients gives the server a Docker client for a saved host. It is the

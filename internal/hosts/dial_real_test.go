@@ -17,13 +17,13 @@ import (
 
 	"github.com/moby/moby/client"
 
-	"dockpanel/internal/store"
+	"dc0s/internal/store"
 )
 
 // These tests talk to a tiny stand-in for the Docker API over real sockets,
 // so they exercise what Dial builds: scheme, dialer and TLS, end to end.
 
-const bridgeEnv = "DOCKPANEL_TEST_SSH_BRIDGE"
+const bridgeEnv = "DC0S_TEST_SSH_BRIDGE"
 
 // TestMain lets the test binary double as a fake `ssh`: when the variable is
 // set it joins its stdin and stdout to a unix socket, which is what

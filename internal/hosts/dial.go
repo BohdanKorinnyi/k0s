@@ -15,8 +15,8 @@ import (
 
 	"github.com/moby/moby/client"
 
-	"dockpanel/internal/appinfo"
-	"dockpanel/internal/store"
+	"dc0s/internal/appinfo"
+	"dc0s/internal/store"
 )
 
 // Dial builds a Docker client for the host. It does not connect: the first

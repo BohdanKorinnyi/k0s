@@ -9,8 +9,8 @@ import (
 	"github.com/moby/moby/client"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 
-	"dockpanel/internal/registryauth"
-	"dockpanel/internal/services"
+	"dc0s/internal/registryauth"
+	"dc0s/internal/services"
 )
 
 // pullRestart pulls the newest image for the tag each container was created

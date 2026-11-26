@@ -4,20 +4,20 @@
 # Uses the local `npm` when one is installed; otherwise runs the same command
 # in a container, so Docker is the only thing a contributor needs.
 #
-#   DOCKPANEL_NPM_IN_DOCKER=1   force the container even when npm is installed
-#   DOCKPANEL_NODE_IMAGE=...    image to use (default node:22-alpine)
+#   DC0S_NPM_IN_DOCKER=1   force the container even when npm is installed
+#   DC0S_NODE_IMAGE=...    image to use (default node:22-alpine)
 set -eu
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 
-if [ -z "${DOCKPANEL_NPM_IN_DOCKER:-}" ] && command -v npm >/dev/null 2>&1; then
+if [ -z "${DC0S_NPM_IN_DOCKER:-}" ] && command -v npm >/dev/null 2>&1; then
   cd "$root"
   exec npm "$@"
 fi
 
-image=${DOCKPANEL_NODE_IMAGE:-node:22-alpine}
+image=${DC0S_NODE_IMAGE:-node:22-alpine}
 
 exec docker run --rm \
   -v "$root":/src -w /src \
-  -v dockpanel-npm:/root/.npm \
+  -v dc0s-npm:/root/.npm \
   "$image" npm "$@"

@@ -11,7 +11,7 @@ import (
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/moby/moby/api/types/container"
 
-	"dockpanel/internal/dockerapi/dockertest"
+	"dc0s/internal/dockerapi/dockertest"
 )
 
 var ctx = context.Background()

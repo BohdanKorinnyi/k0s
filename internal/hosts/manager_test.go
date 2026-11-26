@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"dockpanel/internal/store"
+	"dc0s/internal/store"
 )
 
 func newStore(t *testing.T) *store.Store {
@@ -37,7 +37,7 @@ func selfSigned(t *testing.T) (certPEM, keyPEM string) {
 	}
 	tmpl := &x509.Certificate{
 		SerialNumber:          big.NewInt(1),
-		Subject:               pkix.Name{CommonName: "dockpanel test"},
+		Subject:               pkix.Name{CommonName: "dc0s test"},
 		NotBefore:             time.Now().Add(-time.Hour),
 		NotAfter:              time.Now().Add(time.Hour),
 		IsCA:                  true,

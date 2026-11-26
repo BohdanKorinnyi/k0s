@@ -16,7 +16,7 @@ import (
 	"github.com/moby/moby/api/types/network"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 
-	"dockpanel/internal/dockerapi/dockertest"
+	"dc0s/internal/dockerapi/dockertest"
 )
 
 const (

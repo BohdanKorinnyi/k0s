@@ -10,10 +10,10 @@ import (
 
 	cerrdefs "github.com/containerd/errdefs"
 
-	"dockpanel/internal/dockerapi"
-	"dockpanel/internal/services"
-	"dockpanel/internal/store"
-	"dockpanel/internal/updates"
+	"dc0s/internal/dockerapi"
+	"dc0s/internal/services"
+	"dc0s/internal/store"
+	"dc0s/internal/updates"
 )
 
 // Time limits for work done on behalf of one request.

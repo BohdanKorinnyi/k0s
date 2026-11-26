@@ -9,7 +9,7 @@ import (
 
 	"github.com/moby/moby/client"
 
-	"dockpanel/internal/dockerapi"
+	"dc0s/internal/dockerapi"
 )
 
 // ShellCommand is what a shell session runs: bash when the container has it,

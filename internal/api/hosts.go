@@ -8,8 +8,8 @@ import (
 
 	"github.com/moby/moby/client"
 
-	"dockpanel/internal/hosts"
-	"dockpanel/internal/store"
+	"dc0s/internal/hosts"
+	"dc0s/internal/store"
 )
 
 type tlsInput struct {

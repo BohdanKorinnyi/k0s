@@ -2,8 +2,8 @@
 # Then open http://localhost:8080
 
 services:
-  dockpanel:
-    image: dockpanel:dev
+  dc0s:
+    image: dc0s:dev
     build: .
     restart: unless-stopped
     # Stopping waits for a running action (a pull & restart, say) to finish
@@ -12,18 +12,18 @@ services:
     ports:
       # Reachable from this machine only. The panel can open shells in your
       # containers and show their secrets; do not publish it more widely
-      # without setting DOCKPANEL_PASSWORD.
+      # without setting DC0S_PASSWORD.
       - "127.0.0.1:8080:8080"
     volumes:
-      - dockpanel-data:/data
+      - dc0s-data:/data
       # The local Docker daemon, offered as host "local" on first run.
       - /var/run/docker.sock:/var/run/docker.sock
       # For ssh:// hosts: your SSH keys and config, read-only. The panel
       # copies them into place with the ownership ssh requires.
       # - ~/.ssh:/ssh:ro
     # environment:
-    #   DOCKPANEL_PASSWORD: change-me
-    #   DOCKPANEL_ALLOWED_HOSTS: panel.lan
+    #   DC0S_PASSWORD: change-me
+    #   DC0S_ALLOWED_HOSTS: panel.lan
 
 volumes:
-  dockpanel-data:
+  dc0s-data:

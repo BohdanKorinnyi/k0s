@@ -24,7 +24,7 @@ internet.**
   `127.0.0.1` and put the panel on a Docker network of its own. The program
   run outside its image listens on `127.0.0.1` unless told otherwise.
 - **Known hostnames only.** Requests must be addressed to `localhost`,
-  `127.0.0.1`, `::1`, or a name added with `DOCKPANEL_ALLOWED_HOSTS`. This
+  `127.0.0.1`, `::1`, or a name added with `DC0S_ALLOWED_HOSTS`. This
   stops "DNS rebinding", where a website points a hostname of its own at your
   machine to reach services that listen locally.
 - **No cross-site actions.** Requests that change something, and WebSocket
@@ -59,7 +59,7 @@ on guessing, not a defence against someone already on your network.
 
 ## If you open it to a network
 
-1. Set `DOCKPANEL_PASSWORD` (or `DOCKPANEL_PASSWORD_FILE`). The panel logs a
+1. Set `DC0S_PASSWORD` (or `DC0S_PASSWORD_FILE`). The panel logs a
    warning at start if it answers to extra hostnames without one.
 2. Put it behind a reverse proxy that provides HTTPS. Without HTTPS the
    password, session cookie, shells and secrets cross the network in the
@@ -72,7 +72,7 @@ on guessing, not a defence against someone already on your network.
 
 Everything is in the data volume (`/data`):
 
-- `dockpanel.json` — hosts, including TLS client keys, and registry logins,
+- `dc0s.json` — hosts, including TLS client keys, and registry logins,
   including passwords, as plain text. The file is readable only by its owner
   (mode 0600), the same level of protection Docker gives its own
   `config.json`. Protect the volume and its backups accordingly.

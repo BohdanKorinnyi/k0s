@@ -47,12 +47,12 @@ func TestLoadDefaults(t *testing.T) {
 
 func TestLoadOverrides(t *testing.T) {
 	c, err := Load(env(map[string]string{
-		"DOCKPANEL_ADDR":           "127.0.0.1:9000",
-		"DOCKPANEL_DATA_DIR":       "/tmp/dp",
-		"DOCKPANEL_PASSWORD":       "hunter2",
-		"DOCKPANEL_HEALTH_TIMEOUT": "45s",
-		"DOCKPANEL_LOCAL_SOCKET":   "/run/user/1000/docker.sock",
-		"DOCKPANEL_SSH_DIR":        "/keys",
+		"DC0S_ADDR":           "127.0.0.1:9000",
+		"DC0S_DATA_DIR":       "/tmp/dp",
+		"DC0S_PASSWORD":       "hunter2",
+		"DC0S_HEALTH_TIMEOUT": "45s",
+		"DC0S_LOCAL_SOCKET":   "/run/user/1000/docker.sock",
+		"DC0S_SSH_DIR":        "/keys",
 	}), noFiles)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
@@ -64,7 +64,7 @@ func TestLoadOverrides(t *testing.T) {
 }
 
 func TestLoadAllowedHosts(t *testing.T) {
-	c, err := Load(env(map[string]string{"DOCKPANEL_ALLOWED_HOSTS": " panel.lan, Box.Local ,,"}), noFiles)
+	c, err := Load(env(map[string]string{"DC0S_ALLOWED_HOSTS": " panel.lan, Box.Local ,,"}), noFiles)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -81,7 +81,7 @@ func TestLoadPasswordFile(t *testing.T) {
 		}
 		return []byte("s3cret\n"), nil
 	}
-	c, err := Load(env(map[string]string{"DOCKPANEL_PASSWORD_FILE": "/run/secrets/pw"}), read)
+	c, err := Load(env(map[string]string{"DC0S_PASSWORD_FILE": "/run/secrets/pw"}), read)
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
@@ -91,21 +91,21 @@ func TestLoadPasswordFile(t *testing.T) {
 }
 
 func TestLoadPasswordFileUnreadable(t *testing.T) {
-	_, err := Load(env(map[string]string{"DOCKPANEL_PASSWORD_FILE": "/nope"}), noFiles)
-	if err == nil || !strings.Contains(err.Error(), "DOCKPANEL_PASSWORD_FILE") {
-		t.Errorf("err = %v, want one naming DOCKPANEL_PASSWORD_FILE", err)
+	_, err := Load(env(map[string]string{"DC0S_PASSWORD_FILE": "/nope"}), noFiles)
+	if err == nil || !strings.Contains(err.Error(), "DC0S_PASSWORD_FILE") {
+		t.Errorf("err = %v, want one naming DC0S_PASSWORD_FILE", err)
 	}
 }
 
 func TestLoadPasswordAndFileConflict(t *testing.T) {
 	_, err := Load(env(map[string]string{
-		"DOCKPANEL_PASSWORD":      "a",
-		"DOCKPANEL_PASSWORD_FILE": "/run/secrets/pw",
+		"DC0S_PASSWORD":      "a",
+		"DC0S_PASSWORD_FILE": "/run/secrets/pw",
 	}), noFiles)
 	if err == nil {
 		t.Fatal("want an error when both are set")
 	}
-	for _, name := range []string{"DOCKPANEL_PASSWORD", "DOCKPANEL_PASSWORD_FILE"} {
+	for _, name := range []string{"DC0S_PASSWORD", "DC0S_PASSWORD_FILE"} {
 		if !strings.Contains(err.Error(), name) {
 			t.Errorf("error %q does not name %s", err, name)
 		}
@@ -114,9 +114,9 @@ func TestLoadPasswordAndFileConflict(t *testing.T) {
 
 func TestLoadBadDuration(t *testing.T) {
 	for _, v := range []string{"soon", "-5s", "0s"} {
-		_, err := Load(env(map[string]string{"DOCKPANEL_HEALTH_TIMEOUT": v}), noFiles)
-		if err == nil || !strings.Contains(err.Error(), "DOCKPANEL_HEALTH_TIMEOUT") {
-			t.Errorf("HEALTH_TIMEOUT=%q: err = %v, want one naming DOCKPANEL_HEALTH_TIMEOUT", v, err)
+		_, err := Load(env(map[string]string{"DC0S_HEALTH_TIMEOUT": v}), noFiles)
+		if err == nil || !strings.Contains(err.Error(), "DC0S_HEALTH_TIMEOUT") {
+			t.Errorf("HEALTH_TIMEOUT=%q: err = %v, want one naming DC0S_HEALTH_TIMEOUT", v, err)
 		}
 	}
 }

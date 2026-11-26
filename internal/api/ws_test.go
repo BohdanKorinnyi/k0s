@@ -15,8 +15,8 @@ import (
 
 	"github.com/coder/websocket"
 
-	"dockpanel/internal/dockerapi/dockertest"
-	"dockpanel/internal/streams"
+	"dc0s/internal/dockerapi/dockertest"
+	"dc0s/internal/streams"
 )
 
 // frame builds one frame of Docker's two-stream log format.

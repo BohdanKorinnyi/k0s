@@ -8,8 +8,8 @@ import (
 
 	"github.com/moby/moby/client"
 
-	"dockpanel/internal/dockerapi"
-	"dockpanel/internal/store"
+	"dc0s/internal/dockerapi"
+	"dc0s/internal/store"
 )
 
 // testTimeout bounds a connection test. A variable so tests can shorten it.

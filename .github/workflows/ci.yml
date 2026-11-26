@@ -28,7 +28,7 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-      # The runner has Docker; the tests create and remove dockpanel-it-… objects.
+      # The runner has Docker; the tests create and remove dc0s-it-… objects.
       - run: go vet -tags integration ./internal/integration/...
       - run: go test -tags integration -count=1 ./internal/integration/...
 
@@ -55,13 +55,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - run: docker build -t dockpanel:ci .
+      - run: docker build -t dc0s:ci .
       # The image starts and answers.
       - run: |
-          docker run -d --name dockpanel-ci -p 127.0.0.1:8080:8080 dockpanel:ci
+          docker run -d --name dc0s-ci -p 127.0.0.1:8080:8080 dc0s:ci
           for i in $(seq 1 20); do
             curl -fsS http://127.0.0.1:8080/api/session && exit 0
             sleep 1
           done
-          docker logs dockpanel-ci
+          docker logs dc0s-ci
           exit 1

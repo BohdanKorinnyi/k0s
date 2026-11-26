@@ -1,4 +1,4 @@
-module dockpanel
+module dc0s
 
 go 1.27
 

@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"dockpanel/internal/appinfo"
+	"dc0s/internal/appinfo"
 )
 
 const (

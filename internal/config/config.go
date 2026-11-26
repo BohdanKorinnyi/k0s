@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"dockpanel/internal/appinfo"
+	"dc0s/internal/appinfo"
 )
 
 // Config is everything the program can be told at start-up.
