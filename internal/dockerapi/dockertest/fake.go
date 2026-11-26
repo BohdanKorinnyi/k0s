@@ -283,14 +283,16 @@ func (f *Fake) ContainerList(_ context.Context, options client.ContainerListOpti
 		if !options.All && !c.State.Running {
 			continue
 		}
-		out.Items = append(out.Items, container.Summary{
+		item := container.Summary{
 			ID:      c.ID,
 			Names:   []string{c.Name},
 			Image:   c.Config.Image,
 			ImageID: c.Image,
 			Labels:  c.Config.Labels,
 			State:   c.State.Status,
-		})
+		}
+		item.HostConfig.NetworkMode = string(c.HostConfig.NetworkMode)
+		out.Items = append(out.Items, item)
 	}
 	return out, nil
 }

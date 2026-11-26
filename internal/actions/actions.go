@@ -137,6 +137,7 @@ func Default() *Registry {
 	r.Register(restartAction())
 	r.Register(startAction())
 	r.Register(stopAction())
+	r.Register(pullRestartAction())
 	return r
 }
 
