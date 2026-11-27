@@ -20,6 +20,9 @@ const paths = {
   refresh: 'M13 3v3.5H9.5M12.4 6.5a4.8 4.8 0 1 0 .3 3.5',
   plus: 'M8 3.5v9M3.5 8h9',
   check: 'M3.5 8.5 6.5 11.5 12.5 4.5',
+  chevron: 'M6 3.5 10.5 8 6 12.5',
+  up: 'M8 12.5v-9M4.5 7 8 3.5 11.5 7',
+  down: 'M8 3.5v9M4.5 9 8 12.5 11.5 9',
 } as const
 
 export type IconName = keyof typeof paths

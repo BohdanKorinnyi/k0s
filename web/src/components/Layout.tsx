@@ -15,11 +15,13 @@ type Props = {
   currentHostId?: string | null
   /** Pages that manage their own height (the service page) fill the window. */
   fill?: boolean
+  /** Pages that are one big table (the services list) use the whole width. */
+  wide?: boolean
   children: ReactNode
 }
 
 /** The frame around every page: top bar with the hosts, then the page. */
-export function Layout({ currentHostId = null, fill = false, children }: Props) {
+export function Layout({ currentHostId = null, fill = false, wide = false, children }: Props) {
   const { hosts, statuses } = useHosts()
   const session = useContext(SessionContext)
   return (
@@ -40,7 +42,7 @@ export function Layout({ currentHostId = null, fill = false, children }: Props) 
           )}
         </div>
       </header>
-      <main className={fill ? 'page fill' : 'page'}>{children}</main>
+      <main className={fill ? 'page fill' : wide ? 'page wide' : 'page'}>{children}</main>
     </>
   )
 }

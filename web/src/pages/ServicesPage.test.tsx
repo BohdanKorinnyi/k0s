@@ -5,7 +5,7 @@ import { beforeEach, expect, test } from 'vitest'
 import type { ServicesResponse } from '../api/types'
 import { ActionsProvider } from '../hooks/useActions'
 import { HostsProvider } from '../hooks/useHosts'
-import { actionInfos, container, host, json, mockFetch, service } from '../test-utils'
+import { actionInfos, container, FakeWebSocket, host, json, mockFetch, service } from '../test-utils'
 import { ServicesPage } from './ServicesPage'
 
 const services: ServicesResponse = {
@@ -173,4 +173,98 @@ test('only the first load of a host asks for an update check', async () => {
   await screen.findByText('Restart finished')
   await waitFor(() => expect(loads().length).toBeGreaterThan(1))
   expect(loads().slice(1).every((path) => path === '/api/hosts/aws/services')).toBe(true)
+})
+
+test('next to "Hide stopped" it says how many containers run, out of all on the host', async () => {
+  const user = userEvent.setup()
+  renderPage({ 'GET /api/hosts/aws/services': services })
+  await screen.findByRole('row', { name: /^api\b/ })
+  // api has two running, db has one that is stopped.
+  expect(screen.getByText('2 of 3 containers running')).toBeInTheDocument()
+
+  // The count is of the host, not of what the filter leaves on screen.
+  await user.click(screen.getByRole('checkbox', { name: 'Hide stopped' }))
+  await user.type(screen.getByRole('searchbox', { name: 'Filter services' }), 'api')
+  expect(screen.getByText('2 of 3 containers running')).toBeInTheDocument()
+})
+
+// The services on screen, top to bottom, by the link each row's name is.
+const shownOrder = (...known: string[]) =>
+  screen
+    .getAllByRole('link')
+    .map((a) => a.textContent ?? '')
+    .filter((text) => known.includes(text))
+
+test('the list can be sorted by status and by name, and the choice is remembered', async () => {
+  const user = userEvent.setup()
+  const mixed: ServicesResponse = {
+    updatesCheckedAt: null,
+    groups: [
+      {
+        project: 'shop',
+        services: [
+          service({ key: 'c~shop~api', name: 'api' }),
+          service({ key: 'c~shop~db', name: 'db', running: 0, total: 1, state: 'stopped', startedAt: null }),
+          service({ key: 'c~shop~web', name: 'web', state: 'unhealthy' }),
+        ],
+      },
+    ],
+  }
+  const order = () => shownOrder('api', 'db', 'web')
+
+  renderPage({ 'GET /api/hosts/aws/services': mixed })
+  await screen.findByRole('row', { name: /^api\b/ })
+  expect(order()).toEqual(['api', 'db', 'web'])
+
+  // What needs attention first: unhealthy, then stopped, then running.
+  await user.click(screen.getByRole('button', { name: /^Status/ }))
+  expect(order()).toEqual(['web', 'db', 'api'])
+  expect(screen.getByRole('columnheader', { name: /^Status/ })).toHaveAttribute('aria-sort', 'ascending')
+
+  await user.click(screen.getByRole('button', { name: /^Status/ }))
+  expect(order()).toEqual(['api', 'db', 'web'])
+  expect(screen.getByRole('columnheader', { name: /^Status/ })).toHaveAttribute('aria-sort', 'descending')
+
+  await user.click(screen.getByRole('button', { name: /^Service/ }))
+  await user.click(screen.getByRole('button', { name: /^Service/ }))
+  expect(order()).toEqual(['web', 'db', 'api'])
+  expect(window.localStorage.getItem('dc0s.services.sort')).toBe('name:desc')
+})
+
+test('a remembered sort is used when the list is opened again', async () => {
+  window.localStorage.setItem('dc0s.services.sort', 'name:desc')
+  renderPage({ 'GET /api/hosts/aws/services': services })
+  await screen.findByRole('row', { name: /^api\b/ })
+  expect(screen.getByRole('columnheader', { name: /^Service/ })).toHaveAttribute('aria-sort', 'descending')
+  expect(shownOrder('api', 'db')).toEqual(['db', 'api'])
+})
+
+test('the list uses the whole width of the window', async () => {
+  renderPage({ 'GET /api/hosts/aws/services': services })
+  await screen.findByRole('row', { name: /^api\b/ })
+  expect(screen.getByRole('main')).toHaveClass('wide')
+})
+
+test('a log opened under a row stays open while the list refreshes itself', async () => {
+  FakeWebSocket.install()
+  const user = userEvent.setup()
+  const fetched = renderPage({
+    'GET /api/hosts/aws/services': services,
+    'POST /api/hosts/aws/services/c~shop~api/actions/restart': new Response(
+      '{"step":"Restart finished","level":"success","done":true}\n',
+      { status: 200 },
+    ),
+  })
+  const row = await screen.findByRole('row', { name: /^api\b/ })
+  await user.click(within(row).getByRole('button', { name: 'Show logs of api' }))
+  expect(screen.getByRole('region', { name: 'Logs of api' })).toBeInTheDocument()
+
+  // An action finishing makes the list load again.
+  const loads = () => fetched.calls.filter((c) => c.method === 'GET' && c.path.startsWith('/api/hosts/aws/services')).length
+  const before = loads()
+  await user.click(within(row).getByRole('button', { name: 'Restart' }))
+  await waitFor(() => expect(loads()).toBeGreaterThan(before))
+
+  expect(screen.getByRole('region', { name: 'Logs of api' })).toBeInTheDocument()
+  expect(FakeWebSocket.instances).toHaveLength(1)
 })

@@ -19,7 +19,12 @@ installed on the hosts.
 - **Services list.** Containers grouped the way Docker Compose made them, with
   container names, running/total count, image and tag, state, uptime and restart
   count. Stopped services are listed too: a crashed service is the one you most
-  need to see.
+  need to see. Filter it, hide what is stopped, and sort it by name or by
+  status (what needs attention first); the toolbar says how many containers on
+  the host are running.
+- **A log under any row.** The arrow at the start of a row opens that service's
+  live log right there, in a box as tall as eight rows, without leaving the
+  list. Open as many as you like.
 - **Actions.** Restart, start and stop, on a whole service or on one container,
   and *pull & restart* for a whole service, with step-by-step progress.
 - **Update badge.** Shows when the registry has a newer image for a service's tag.

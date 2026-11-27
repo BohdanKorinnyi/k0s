@@ -24,3 +24,16 @@ export function filterGroups(groups: ServiceGroup[], query: string, hideStopped:
 export function countServices(groups: ServiceGroup[]): number {
   return groups.reduce((total, group) => total + group.services.length, 0)
 }
+
+/** How many containers run, out of how many there are, across the whole list. */
+export function countContainers(groups: ServiceGroup[]): { running: number; total: number } {
+  let running = 0
+  let total = 0
+  for (const group of groups) {
+    for (const service of group.services) {
+      running += service.running
+      total += service.total
+    }
+  }
+  return { running, total }
+}

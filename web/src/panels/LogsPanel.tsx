@@ -1,11 +1,10 @@
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { paths } from '../api/client'
 import { Icon } from '../components/Icon'
-import { useLogStream, type StreamedLine } from '../hooks/useLogStream'
+import { LogRow, StreamStatus } from '../components/LogLines'
+import { useLogStream } from '../hooks/useLogStream'
 import { useStoredFlag } from '../hooks/useStoredFlag'
-import { toSegments, type Segment } from '../lib/ansi'
-import { formatLogTime } from '../lib/format'
-import { matchLines, splitHighlight } from '../lib/logSearch'
+import { matchLines } from '../lib/logSearch'
 import type { PanelProps } from './index'
 
 const TAILS = ['100', '500', '2000', 'all'] as const
@@ -134,71 +133,4 @@ export function LogsPanel({ host, service, container }: PanelProps) {
       </div>
     </div>
   )
-}
-
-function StreamStatus({ status, error, onReconnect }: { status: string; error: string | null; onReconnect: () => void }) {
-  if (status === 'live') {
-    return (
-      <span className="log-status">
-        <span className="dot ok" /> live
-      </span>
-    )
-  }
-  if (status === 'connecting') return <span className="log-status">connecting…</span>
-  return (
-    <span className="log-status" title={error ?? undefined}>
-      <span className={status === 'error' ? 'dot bad' : 'dot idle'} />
-      {status === 'error' ? 'connection lost' : 'log ended'}
-      <button type="button" className="btn small" onClick={onReconnect}>
-        Reconnect
-      </button>
-    </span>
-  )
-}
-
-type RowProps = { line: StreamedLine; showTime: boolean; showSource: boolean; query: string }
-
-/**
- * One log line. Everything from the log is rendered as text nodes: a line
- * containing "<script>" shows those characters and nothing else happens.
- */
-const LogRow = memo(function LogRow({ line, showTime, showSource, query }: RowProps) {
-  const segments = useMemo(() => toSegments(line.l), [line.l])
-  return (
-    <div className={line.s === 'stderr' ? 'log-line stderr' : 'log-line'}>
-      {showTime && (
-        <span className="log-time" title={line.t}>
-          {formatLogTime(line.t)}
-        </span>
-      )}
-      {showSource && <span className="log-source">{line.c}</span>}
-      {segments.length === 1 && isPlain(segments[0]!) && query === '' ? (
-        <span className="log-text">{segments[0]!.text}</span>
-      ) : (
-        <span className="log-text">
-          {segments.map((segment, i) => (
-            <SegmentSpan key={i} segment={segment} query={query} />
-          ))}
-        </span>
-      )}
-    </div>
-  )
-})
-
-function isPlain(s: Segment): boolean {
-  return !s.color && !s.background && !s.bold && !s.dim && !s.italic && !s.underline
-}
-
-function SegmentSpan({ segment, query }: { segment: Segment; query: string }) {
-  const style = {
-    color: segment.color,
-    background: segment.background,
-    fontWeight: segment.bold ? 700 : undefined,
-    opacity: segment.dim ? 0.7 : undefined,
-    fontStyle: segment.italic ? 'italic' : undefined,
-    textDecoration: segment.underline ? 'underline' : undefined,
-  }
-  const pieces = splitHighlight(segment.text, query)
-  const content = pieces.map((piece, i) => (piece.hit ? <mark key={i}>{piece.text}</mark> : piece.text))
-  return isPlain(segment) ? <>{content}</> : <span style={style}>{content}</span>
 }

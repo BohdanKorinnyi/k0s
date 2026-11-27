@@ -1,7 +1,7 @@
 import { expect, test } from 'vitest'
 import type { ServiceGroup } from '../api/types'
 import { container, service } from '../test-utils'
-import { countServices, filterGroups } from './filterServices'
+import { countContainers, countServices, filterGroups } from './filterServices'
 
 // Each service is recognisable by different words, so a filter can single one out.
 const groups: ServiceGroup[] = [
@@ -72,4 +72,13 @@ test('hide stopped removes services with nothing running', () => {
 
 test('surrounding spaces in the filter are ignored', () => {
   expect(keys(filterGroups(groups, '  api  ', false))).toEqual(['c~shop~api'])
+})
+
+test('containers are counted across the whole list: how many run, out of how many there are', () => {
+  const list: ServiceGroup[] = [
+    { project: 'shop', services: [service({ running: 2, total: 2 }), service({ key: 'c~shop~worker', running: 1, total: 2 })] },
+    { project: '', services: [service({ key: 's~redis', running: 0, total: 1 })] },
+  ]
+  expect(countContainers(list)).toEqual({ running: 3, total: 5 })
+  expect(countContainers([])).toEqual({ running: 0, total: 0 })
 })

@@ -6,9 +6,10 @@ import { ServicesTable } from '../components/ServicesTable'
 import { useActions } from '../hooks/useActions'
 import { useHosts } from '../hooks/useHosts'
 import { useServices } from '../hooks/useServices'
-import { useStoredFlag } from '../hooks/useStoredFlag'
-import { countServices, filterGroups } from '../lib/filterServices'
+import { useStoredFlag, useStoredText } from '../hooks/useStoredFlag'
+import { countContainers, countServices, filterGroups } from '../lib/filterServices'
 import { relativeTime } from '../lib/format'
+import { formatSort, nextSort, parseSort, sortGroups } from '../lib/sortServices'
 
 /** The services of one host. */
 export function ServicesPage() {
@@ -20,6 +21,8 @@ export function ServicesPage() {
 
   const [query, setQuery] = useState('')
   const [hideStopped, setHideStopped] = useStoredFlag('hideStopped')
+  const [storedSort, setStoredSort] = useStoredText('services.sort')
+  const sort = useMemo(() => parseSort(storedSort), [storedSort])
   const now = services.loadedAt
 
   useEffect(() => {
@@ -27,7 +30,12 @@ export function ServicesPage() {
   }, [host])
 
   const groups = services.data?.groups
-  const shown = useMemo(() => (groups ? filterGroups(groups, query, hideStopped) : []), [groups, query, hideStopped])
+  const shown = useMemo(
+    () => (groups ? sortGroups(filterGroups(groups, query, hideStopped), sort) : []),
+    [groups, query, hideStopped, sort],
+  )
+  // Of the whole host, whatever the filter leaves on screen.
+  const containers = useMemo(() => (groups ? countContainers(groups) : null), [groups])
 
   if (!host) {
     return (
@@ -48,7 +56,7 @@ export function ServicesPage() {
 
   const checkedAt = services.data?.updatesCheckedAt
   return (
-    <Layout currentHostId={host.id}>
+    <Layout currentHostId={host.id} wide>
       <div className="toolbar">
         <input
           type="search"
@@ -63,6 +71,11 @@ export function ServicesPage() {
           <input type="checkbox" checked={hideStopped} onChange={(e) => setHideStopped(e.target.checked)} />
           Hide stopped
         </label>
+        {containers && containers.total > 0 && (
+          <span className="muted">
+            {containers.running} of {containers.total} containers running
+          </span>
+        )}
         <span className="grow" />
         <span className="muted">{checkedAt ? `Updates checked ${relativeTime(checkedAt, now)}` : 'Updates not checked yet'}</span>
         <button type="button" className="btn" onClick={services.checkNow} disabled={services.checking || !services.data}>
@@ -89,11 +102,15 @@ export function ServicesPage() {
         </div>
       ) : (
         <ServicesTable
+          // Logs opened under rows belong to one host's list.
+          key={host.id}
           host={host}
           groups={shown}
           infos={actions.infos}
           now={now}
           onAction={(service, actionId) => actions.run(host, service, actionId)}
+          sort={sort}
+          onSort={(by) => setStoredSort(formatSort(nextSort(sort, by)))}
         />
       )}
     </Layout>
